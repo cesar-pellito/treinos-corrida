@@ -70,6 +70,8 @@ async function montar() {
 }
 
 export function iniciarRouter() {
+  // App ativo: revela a barra de navegação (escondida durante o onboarding).
+  document.body.classList.remove("sem-nav");
   window.addEventListener("hashchange", montar);
   if (!location.hash) location.hash = "#/hoje";
   else montar();
