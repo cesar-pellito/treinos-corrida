@@ -177,6 +177,9 @@ body {
 }
 .tabbar a svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tabbar a[aria-current="page"] { color: var(--accent); }
+/* Durante o onboarding (router ainda não iniciado) a barra fica escondida:
+   sem ela clicável e sem função. iniciarRouter() remove esta classe. */
+body.sem-nav .tabbar { display: none; }
 
 /* ---------- Banner de atualização ---------- */
 .update-banner {
