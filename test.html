@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Testes do núcleo — Treinos de Corrida</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 1rem; max-width: 720px; margin-inline: auto; line-height: 1.4; }
+    h1 { font-size: 1.25rem; }
+    #resumo { position: sticky; top: 0; background: Canvas; padding: .5rem 0; border-bottom: 1px solid #8884; font-weight: 600; }
+    ol { padding-left: 1.5rem; }
+    li { margin: .3rem 0; }
+    .pass::marker { content: "✓ "; }
+    .fail::marker { content: "✗ "; }
+    .pass { color: #1a7f37; }
+    .fail { color: #cf222e; }
+    .msg { display: block; color: #cf222e; font-family: ui-monospace, monospace; font-size: .8rem; white-space: pre-wrap; }
+    @media (prefers-color-scheme: dark) { .pass { color: #3fb950; } .fail, .msg { color: #ff7b72; } }
+  </style>
+</head>
+<body>
+  <h1>Testes do núcleo de dados</h1>
+  <div id="resumo">Rodando…</div>
+  <ol id="lista"></ol>
+
+  <script type="module">
+    import { rodarTestes } from "./js/tests/nucleo.js";
+
+    const lista = document.getElementById("lista");
+    const resumo = document.getElementById("resumo");
+
+    function reportar(nome, ok, msg) {
+      const li = document.createElement("li");
+      li.className = ok ? "pass" : "fail";
+      li.textContent = nome;
+      if (!ok && msg) {
+        const span = document.createElement("span");
+        span.className = "msg";
+        span.textContent = "↳ " + msg;
+        li.appendChild(span);
+      }
+      lista.appendChild(li);
+    }
+
+    (async () => {
+      try {
+        const resp = await fetch("./data/plano-seed.json");
+        const seed = await resp.json();
+        const res = await rodarTestes(seed, reportar);
+        resumo.textContent = `Total: ${res.total} · OK: ${res.ok} · Falhas: ${res.fail}`;
+        resumo.style.color = res.fail ? "#cf222e" : "#1a7f37";
+      } catch (e) {
+        resumo.textContent = "Erro ao rodar os testes: " + e.message;
+        resumo.style.color = "#cf222e";
+      }
+    })();
+  </script>
+</body>
+</html>

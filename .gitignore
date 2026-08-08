@@ -1,0 +1,13 @@
+# Configurações locais do Claude Code
+.claude/
+
+# Documento-fonte pessoal do plano (não é necessário para o app rodar)
+*.pdf
+
+# Artefatos/dependências (o app não usa, mas por segurança)
+node_modules/
+
+# Lixo de sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini

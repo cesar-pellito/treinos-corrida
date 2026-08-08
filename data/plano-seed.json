@@ -1,0 +1,999 @@
+{
+  "schemaVersion": 1,
+  "geradoEm": "2026-07-27T03:16:52.047Z",
+  "fonte": "Treino V1 - Claude.pdf (Plano de Retorno à Corrida — 22 Semanas)",
+  "plano": {
+    "nome": "Plano de Retorno à Corrida — 22 Semanas",
+    "versao": 1,
+    "totalSemanas": 22,
+    "sessoesPorSemana": 3,
+    "destino": "Corredor consistente, 3x/semana, rodagem longa de 60–70 min e capacidade de limiar."
+  },
+  "modelos": {
+    "T1": {
+      "codigo": "T1",
+      "tipo": "corrida_caminhada",
+      "titulo": "Corrida/caminhada",
+      "aquecimento": "6 min caminhada em ritmo firme + mobilidade de tornozelo e quadril",
+      "desaquecimento": "5 min caminhada leve + 3 min de respiração controlada",
+      "intensidade": "RPE 3–4 nos blocos de corrida · RPE 2 na caminhada",
+      "ritmo": "Ignorar completamente",
+      "objetivoFisiologico": "Estimular remodelamento ósseo e tendíneo com dose fracionada; reativar a resposta cardiovascular sem acúmulo de carga excêntrica"
+    },
+    "T2": {
+      "codigo": "T2",
+      "tipo": "continua",
+      "titulo": "Rodagem fácil contínua",
+      "aquecimento": "5 min caminhada + 2 min trote muito leve",
+      "desaquecimento": "5 min caminhada",
+      "intensidade": "RPE 3–4, frases completas o tempo todo",
+      "ritmo": "Não prescrito até a semana 15",
+      "objetivoFisiologico": "Densidade mitocondrial e capilar, oxidação de gordura, aumento de volume sistólico, resistência tendínea. É o treino que constrói o corredor."
+    },
+    "T3": {
+      "codigo": "T3",
+      "tipo": "strides",
+      "titulo": "Rodagem + strides",
+      "aquecimento": "5 min caminhada + 2 min trote muito leve (idêntico ao T2)",
+      "desaquecimento": "5 min caminhada",
+      "intensidade": "RPE 3–4 na rodagem · RPE 7 nas strides (rápido, nunca sprint máximo)",
+      "ritmo": "Não prescrito até a semana 15",
+      "objetivoFisiologico": "Recrutamento de fibras rápidas, rigidez elástica do tendão, economia de corrida. Duração curta demais para gerar acidose ou fadiga sistêmica — por isso entra cedo sem custo.",
+      "regraSeguranca": "Strides em superfície plana e macia. Ao primeiro sinal de desconforto plantar ou no aquiles, suspender por 2 semanas."
+    },
+    "T4": {
+      "codigo": "T4",
+      "tipo": "fartlek",
+      "titulo": "Fartlek",
+      "aquecimento": "10 min rodagem fácil",
+      "desaquecimento": "8 min rodagem fácil + 3 min caminhada",
+      "intensidade": "RPE 5–6 — moderado, não duro",
+      "ritmo": "25 a 40 s/km mais lento que o teste de 3 km (referência a partir da semana 15)",
+      "objetivoFisiologico": "Primeira exposição estruturada acima do fácil, com controle voluntário do esforço. Recruta fibras intermediárias e prepara o terreno para o limiar."
+    },
+    "T5": {
+      "codigo": "T5",
+      "tipo": "limiar",
+      "titulo": "Ritmo / limiar",
+      "aquecimento": "12 min rodagem fácil + 4 strides",
+      "desaquecimento": "10 min rodagem fácil",
+      "intensidade": "RPE 7–8 · esforço sustentável por ~50 min se fosse prova",
+      "ritmo": "12 a 20 s/km mais lento que o teste de 3 km",
+      "objetivoFisiologico": "Eleva o limiar de lactato: aumenta a velocidade sustentável em estado estável. É o estímulo de maior retorno para provas de 10 km e 21 km."
+    },
+    "T6": {
+      "codigo": "T6",
+      "tipo": "longa",
+      "titulo": "Rodagem longa",
+      "aquecimento": "5 min caminhada + 3 min trote",
+      "desaquecimento": "8 min caminhada + trabalho de mobilidade",
+      "intensidade": "RPE 3–4 do início ao fim. A tentação de acelerar no final existe — resista até a semana 20.",
+      "ritmo": "55 a 75 s/km mais lento que o teste de 3 km",
+      "objetivoFisiologico": "Depleção de glicogênio, adaptação metabólica de longa duração, resistência de tecido conjuntivo sob fadiga. É também a sessão de maior risco: ela cresce mais devagar que as outras."
+    }
+  },
+  "fases": [
+    {
+      "numero": 1,
+      "nome": "Readaptação ao impacto",
+      "semanaInicio": 1,
+      "semanaFim": 4,
+      "objetivo": "Reintroduzir impacto repetido com dose fracionada; estabelecer o hábito de 3 sessões semanais; testar a resposta da fáscia plantar",
+      "volumeAlvo": "66 a 90 min/semana",
+      "intensidade": "RPE 3–4 exclusivamente. Zero intensidade.",
+      "criterioAvanco": "Quatro semanas completas com ao menos 10 das 12 sessões cumpridas · ausência de dor matinal no calcanhar · capacidade de correr 20 minutos contínuos em RPE 3–4 sem degradação"
+    },
+    {
+      "numero": 2,
+      "nome": "Corrida contínua",
+      "semanaInicio": 5,
+      "semanaFim": 9,
+      "objetivo": "Consolidar corrida contínua; construir capacidade aeróbica de base; elevar volume com segurança",
+      "volumeAlvo": "75 a 95 min/semana",
+      "intensidade": "RPE 3–4. Ainda sem intensidade.",
+      "criterioAvanco": "Correr 35 minutos contínuos confortavelmente · FC média nas rodagens fáceis estável ou em queda no mesmo percurso · recuperação completa em 24h · zero dor matinal por 3 semanas consecutivas"
+    },
+    {
+      "numero": 3,
+      "nome": "Base ampliada e reativação neuromuscular",
+      "semanaInicio": 10,
+      "semanaFim": 15,
+      "objetivo": "Ampliar volume aeróbico; reintroduzir a rodagem longa; reativar o padrão elástico da passada via strides",
+      "volumeAlvo": "95 a 127 min/semana",
+      "intensidade": "90% em RPE 3–4 + strides (RPE 7, mas duração tão curta que não gera fadiga sistêmica)",
+      "criterioAvanco": "Rodagem longa de 50 minutos concluída sem degradação nos últimos 10 minutos · strides toleradas por 5 semanas sem sintoma plantar ou no aquiles · volume de 125 min/semana sustentado por 2 semanas"
+    },
+    {
+      "numero": 4,
+      "nome": "Reintrodução de intensidade",
+      "semanaInicio": 16,
+      "semanaFim": 22,
+      "objetivo": "Reintroduzir estímulo de limiar; estruturar a rodagem longa; deixar o corpo pronto para um bloco específico",
+      "volumeAlvo": "112 a 158 min/semana",
+      "intensidade": "~85% em RPE 3–4 · 1 sessão semanal em RPE 5–8",
+      "criterioAvanco": "Rodagem longa de 70 minutos · 25 minutos contínuos em ritmo de limiar · base de 150 min/semana estabelecida"
+    }
+  ],
+  "semanas": [
+    {
+      "semana": 1,
+      "fase": 1,
+      "absorcao": false,
+      "volumeSemanaMin": 72,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T1",
+          "dose": "3×(8'/2')",
+          "partePrincipal": "3 blocos de 8 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 24,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T1",
+          "dose": "3×(8'/2')",
+          "partePrincipal": "3 blocos de 8 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 24,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T1",
+          "dose": "3×(8'/2')",
+          "partePrincipal": "3 blocos de 8 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 24,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 2,
+      "fase": 1,
+      "absorcao": false,
+      "volumeSemanaMin": 81,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T1",
+          "dose": "3×(9'/2')",
+          "partePrincipal": "3 blocos de 9 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 27,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T1",
+          "dose": "3×(9'/2')",
+          "partePrincipal": "3 blocos de 9 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 27,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T1",
+          "dose": "3×(9'/2')",
+          "partePrincipal": "3 blocos de 9 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 27,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 3,
+      "fase": 1,
+      "absorcao": false,
+      "volumeSemanaMin": 90,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T1",
+          "dose": "3×(10'/90\")",
+          "partePrincipal": "3 blocos de 10 min correndo (RPE 3–4), separados por 90 s de caminhada (RPE 2)",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T1",
+          "dose": "3×(10'/90\")",
+          "partePrincipal": "3 blocos de 10 min correndo (RPE 3–4), separados por 90 s de caminhada (RPE 2)",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T1",
+          "dose": "3×(10'/90\")",
+          "partePrincipal": "3 blocos de 10 min correndo (RPE 3–4), separados por 90 s de caminhada (RPE 2)",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 4,
+      "fase": 1,
+      "absorcao": true,
+      "volumeSemanaMin": 66,
+      "rpeSemanaTexto": "3–4",
+      "nota": "Semana de absorção e ponte. Volume cai ~27% e você faz a primeira corrida contínua.",
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "20' contínuo",
+          "partePrincipal": "Corrida contínua de 20 min em ritmo constante",
+          "duracaoMin": 20,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T1",
+          "dose": "3×(8'/2')",
+          "partePrincipal": "3 blocos de 8 min correndo (RPE 3–4), separados por 2 min de caminhada (RPE 2)",
+          "duracaoMin": 24,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "22' contínuo",
+          "partePrincipal": "Corrida contínua de 22 min em ritmo constante",
+          "duracaoMin": 22,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 5,
+      "fase": 2,
+      "absorcao": false,
+      "volumeSemanaMin": 75,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 6,
+      "fase": 2,
+      "absorcao": false,
+      "volumeSemanaMin": 81,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "28'",
+          "partePrincipal": "Corrida contínua de 28 min em ritmo constante",
+          "duracaoMin": 28,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "28'",
+          "partePrincipal": "Corrida contínua de 28 min em ritmo constante",
+          "duracaoMin": 28,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 7,
+      "fase": 2,
+      "absorcao": false,
+      "volumeSemanaMin": 88,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "28'",
+          "partePrincipal": "Corrida contínua de 28 min em ritmo constante",
+          "duracaoMin": 28,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 8,
+      "fase": 2,
+      "absorcao": false,
+      "volumeSemanaMin": 95,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "35'",
+          "partePrincipal": "Corrida contínua de 35 min em ritmo constante",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 9,
+      "fase": 2,
+      "absorcao": true,
+      "volumeSemanaMin": 78,
+      "rpeSemanaTexto": "3",
+      "nota": "Semana de absorção. É nela que a maior parte da adaptação das últimas quatro semanas se consolida. Não a pule.",
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "28'",
+          "partePrincipal": "Corrida contínua de 28 min em ritmo constante",
+          "duracaoMin": 28,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T2",
+          "dose": "25'",
+          "partePrincipal": "Corrida contínua de 25 min em ritmo constante",
+          "duracaoMin": 25,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 10,
+      "fase": 3,
+      "absorcao": false,
+      "volumeSemanaMin": 100,
+      "rpeSemanaTexto": "3–4 (7 nas strides)",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T3",
+          "dose": "32' + 4×15\"",
+          "partePrincipal": "Rodagem fácil de 32 min + 4 strides de 15 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 32,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "38'",
+          "partePrincipal": "Rodagem longa contínua de 38 min",
+          "duracaoMin": 38,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 11,
+      "fase": 3,
+      "absorcao": false,
+      "volumeSemanaMin": 107,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "32'",
+          "partePrincipal": "Corrida contínua de 32 min em ritmo constante",
+          "duracaoMin": 32,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T3",
+          "dose": "35' + 4×20\"",
+          "partePrincipal": "Rodagem fácil de 35 min + 4 strides de 20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "40'",
+          "partePrincipal": "Rodagem longa contínua de 40 min",
+          "duracaoMin": 40,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 12,
+      "fase": 3,
+      "absorcao": false,
+      "volumeSemanaMin": 112,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "32'",
+          "partePrincipal": "Corrida contínua de 32 min em ritmo constante",
+          "duracaoMin": 32,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T3",
+          "dose": "35' + 5×20\"",
+          "partePrincipal": "Rodagem fácil de 35 min + 5 strides de 20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "45'",
+          "partePrincipal": "Rodagem longa contínua de 45 min",
+          "duracaoMin": 45,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 13,
+      "fase": 3,
+      "absorcao": true,
+      "volumeSemanaMin": 95,
+      "rpeSemanaTexto": "3",
+      "nota": "Semana de absorção — sem strides, volume reduzido em 15%.",
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "30'",
+          "partePrincipal": "Corrida contínua de 30 min em ritmo constante",
+          "duracaoMin": 30,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "35'",
+          "partePrincipal": "Rodagem longa contínua de 35 min",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 14,
+      "fase": 3,
+      "absorcao": false,
+      "volumeSemanaMin": 121,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "35'",
+          "partePrincipal": "Corrida contínua de 35 min em ritmo constante",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T3",
+          "dose": "38' + 5×20\"",
+          "partePrincipal": "Rodagem fácil de 38 min + 5 strides de 20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 38,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "48'",
+          "partePrincipal": "Rodagem longa contínua de 48 min",
+          "duracaoMin": 48,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 15,
+      "fase": 3,
+      "absorcao": false,
+      "volumeSemanaMin": 127,
+      "rpeSemanaTexto": "3–4",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "35'",
+          "partePrincipal": "Corrida contínua de 35 min em ritmo constante",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T3",
+          "dose": "40' + 6×20\"",
+          "partePrincipal": "Rodagem fácil de 40 min + 6 strides de 20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 40,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "52'",
+          "partePrincipal": "Rodagem longa contínua de 52 min",
+          "duracaoMin": 52,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 16,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 130,
+      "rpeSemanaTexto": "3–4 / 5–6",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "35'",
+          "partePrincipal": "Corrida contínua de 35 min em ritmo constante",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T4",
+          "dose": "fartlek 4×2' (2' fácil)",
+          "partePrincipal": "4 blocos de 2 min em RPE 5–6 alternados com 2 min de rodagem fácil",
+          "duracaoMin": 14,
+          "rpeMin": 5,
+          "rpeMax": 6,
+          "zonaFC": "76–83%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "55'",
+          "partePrincipal": "Rodagem longa contínua de 55 min",
+          "duracaoMin": 55,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 17,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 138,
+      "rpeSemanaTexto": "3–4 / 5–6",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "38'",
+          "partePrincipal": "Corrida contínua de 38 min em ritmo constante",
+          "duracaoMin": 38,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T4",
+          "dose": "fartlek 5×2' (2' fácil)",
+          "partePrincipal": "5 blocos de 2 min em RPE 5–6 alternados com 2 min de rodagem fácil",
+          "duracaoMin": 18,
+          "rpeMin": 5,
+          "rpeMax": 6,
+          "zonaFC": "76–83%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "58'",
+          "partePrincipal": "Rodagem longa contínua de 58 min",
+          "duracaoMin": 58,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 18,
+      "fase": 4,
+      "absorcao": true,
+      "volumeSemanaMin": 112,
+      "rpeSemanaTexto": "3–4",
+      "nota": "Semana de absorção entre o bloco de fartlek e o bloco de limiar.",
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "32'",
+          "partePrincipal": "Corrida contínua de 32 min em ritmo constante",
+          "duracaoMin": 32,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "35' + 4 strides",
+          "partePrincipal": "Corrida contínua de 35 min + 4 strides de 15–20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "45'",
+          "partePrincipal": "Rodagem longa contínua de 45 min",
+          "duracaoMin": 45,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 19,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 143,
+      "rpeSemanaTexto": "3–4 / 7–8",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "38'",
+          "partePrincipal": "Corrida contínua de 38 min em ritmo constante",
+          "duracaoMin": 38,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T5",
+          "dose": "2×8' limiar (3' fácil)",
+          "partePrincipal": "2 blocos de 8 min em RPE 7–8 (\"confortavelmente difícil\") com 3 min de rodagem fácil entre eles",
+          "duracaoMin": 19,
+          "rpeMin": 7,
+          "rpeMax": 8,
+          "zonaFC": "84–90%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "60'",
+          "partePrincipal": "Rodagem longa contínua de 60 min",
+          "duracaoMin": 60,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 20,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 150,
+      "rpeSemanaTexto": "3–4 / 7–8",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "40'",
+          "partePrincipal": "Corrida contínua de 40 min em ritmo constante",
+          "duracaoMin": 40,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T5",
+          "dose": "2×10' limiar (3' fácil)",
+          "partePrincipal": "2 blocos de 10 min em RPE 7–8 (\"confortavelmente difícil\") com 3 min de rodagem fácil entre eles",
+          "duracaoMin": 23,
+          "rpeMin": 7,
+          "rpeMax": 8,
+          "zonaFC": "84–90%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "65'",
+          "partePrincipal": "Rodagem longa contínua de 65 min",
+          "duracaoMin": 65,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 21,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 158,
+      "rpeSemanaTexto": "3–4 / 7–8",
+      "nota": null,
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "40'",
+          "partePrincipal": "Corrida contínua de 40 min em ritmo constante",
+          "duracaoMin": 40,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T5",
+          "dose": "3×8' limiar (2' fácil)",
+          "partePrincipal": "3 blocos de 8 min em RPE 7–8 (\"confortavelmente difícil\") com 2 min de rodagem fácil entre eles",
+          "duracaoMin": 28,
+          "rpeMin": 7,
+          "rpeMax": 8,
+          "zonaFC": "84–90%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "70'",
+          "partePrincipal": "Rodagem longa contínua de 70 min",
+          "duracaoMin": 70,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        }
+      }
+    },
+    {
+      "semana": 22,
+      "fase": 4,
+      "absorcao": false,
+      "volumeSemanaMin": 130,
+      "rpeSemanaTexto": "3–4 / 6",
+      "nota": "Fecha o ciclo. Os 15 minutos progressivos no final da rodagem longa testam a capacidade de acelerar sob fadiga.",
+      "sessoes": {
+        "A": {
+          "sessao": "A",
+          "modelo": "T2",
+          "dose": "35'",
+          "partePrincipal": "Corrida contínua de 35 min em ritmo constante",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "B": {
+          "sessao": "B",
+          "modelo": "T2",
+          "dose": "35' + 5 strides",
+          "partePrincipal": "Corrida contínua de 35 min + 5 strides de 15–20 s ao final, com 60–90 s de caminhada entre elas",
+          "duracaoMin": 35,
+          "rpeMin": 3,
+          "rpeMax": 4,
+          "zonaFC": "65–75%"
+        },
+        "C": {
+          "sessao": "C",
+          "modelo": "T6",
+          "dose": "60' (últimos 15 min progressivos em RPE 6)",
+          "partePrincipal": "Rodagem longa contínua de 60 min, últimos 15 min progressivos em RPE 6",
+          "duracaoMin": 60,
+          "rpeMin": 3,
+          "rpeMax": 6,
+          "zonaFC": "76–83%"
+        }
+      }
+    }
+  ]
+}
