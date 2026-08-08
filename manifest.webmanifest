@@ -1,6 +1,6 @@
 {
-  "name": "Treinos de Corrida",
-  "short_name": "Corrida",
+  "name": "PaceUp",
+  "short_name": "PaceUp",
   "description": "Acompanhamento pessoal do plano de retorno à corrida — offline, local-first.",
   "start_url": "./index.html",
   "scope": "./",
