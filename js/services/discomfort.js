@@ -4,12 +4,18 @@
 import * as repo from "../data/repository.js";
 import { rotuloRegiao } from "./dominio.js";
 
+/** Só o plano ativo: planos arquivados por "Recomeçar" não contam. */
+async function completedDoPlanoAtivo() {
+  const plan = await repo.planoAtivo();
+  return repo.listarCompleted({ planId: plan?.id }); // já vem recente-primeiro
+}
+
 /**
  * Recorrência de uma região nos últimos N treinos realizados.
  * @returns {{regiao, comDesconforto, total, texto}}
  */
 export async function recorrencia(regiao, ultimosN = 4) {
-  const completed = await repo.listarCompleted(); // já vem recente-primeiro
+  const completed = await completedDoPlanoAtivo();
   const ultimos = completed.slice(0, ultimosN);
   let com = 0;
   for (const c of ultimos) {
@@ -29,7 +35,7 @@ export async function recorrencia(regiao, ultimosN = 4) {
  * @returns {Array<{regiao, comDesconforto, total, texto}>} ordenado por frequência.
  */
 export async function recorrenciaTodas(ultimosN = 4) {
-  const completed = await repo.listarCompleted();
+  const completed = await completedDoPlanoAtivo();
   const ultimos = completed.slice(0, ultimosN);
   const contagem = {};
   for (const c of ultimos) {

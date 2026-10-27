@@ -12,7 +12,7 @@ export async function renderHistorico(container) {
   container.appendChild(tituloVista("Histórico"));
   const plan = await repo.planoAtivo();
   const [completed, planned] = await Promise.all([
-    repo.listarCompleted(),
+    plan ? repo.listarCompleted({ planId: plan.id }) : Promise.resolve([]),
     plan ? repo.listarPlanned({ planId: plan.id }) : Promise.resolve([]),
   ]);
   const plannedPorId = new Map(planned.map((w) => [w.id, w]));

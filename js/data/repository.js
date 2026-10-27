@@ -82,6 +82,18 @@ export async function planoAtivo() {
   return todos.find((p) => p.ativo) || null;
 }
 
+/**
+ * "Recomeçar o plano": arquiva o plano ativo (ativo=false). NADA é apagado —
+ * planejados, realizados e desconfortos ficam no banco (e no Sheets), só deixam
+ * de aparecer porque as telas filtram pelo plano ativo. Sem plano ativo, o boot
+ * volta ao onboarding e um plano novo é semeado.
+ */
+export async function arquivarPlanoAtivo() {
+  const atual = await planoAtivo();
+  if (!atual) return null;
+  return put(STORES.plans, { ...atual, ativo: false, arquivadoEm: agoraISO() }, { novo: false });
+}
+
 // ---------------------------------------------------------------------------
 // phases
 // ---------------------------------------------------------------------------
@@ -236,8 +248,27 @@ export async function atualizarTreino(id, alteracoes) {
 export async function obterCompleted(id) {
   return obter(STORES.completedWorkouts, id);
 }
-export async function listarCompleted() {
-  const todos = await listar(STORES.completedWorkouts);
+/**
+ * Lista realizados, recente primeiro. Com `planId`, só os daquele plano:
+ *   - vinculado: pelo planId do planejado
+ *   - avulso: pelo plano que estava ativo quando foi criado (o mais recente
+ *     com criadoEm <= criadoEm do avulso; antes de qualquer plano => o primeiro)
+ */
+export async function listarCompleted({ planId } = {}) {
+  let todos = await listar(STORES.completedWorkouts);
+  if (planId) {
+    const [planned, planos] = await Promise.all([listar(STORES.plannedWorkouts), listarPlanos()]);
+    const planoDoPlanned = new Map(planned.map((w) => [w.id, w.planId]));
+    const porCriacao = planos.sort((a, b) => ((a.criadoEm || "") < (b.criadoEm || "") ? -1 : 1));
+    const planoDoAvulso = (c) => {
+      let dono = porCriacao[0]?.id ?? null;
+      for (const p of porCriacao) if ((p.criadoEm || "") <= (c.criadoEm || "")) dono = p.id;
+      return dono;
+    };
+    todos = todos.filter((c) =>
+      (c.plannedWorkoutId ? planoDoPlanned.get(c.plannedWorkoutId) : planoDoAvulso(c)) === planId
+    );
+  }
   return todos.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0)); // recente primeiro
 }
 export async function completedPorPlanned(plannedWorkoutId) {

@@ -17,7 +17,7 @@ function semanaDe(plan, dataISO) {
 /** Carrega e junta os dados uma vez. */
 async function carregarJoin(plan) {
   const [completed, planned] = await Promise.all([
-    repo.listarCompleted(),
+    repo.listarCompleted({ planId: plan.id }),
     repo.listarPlanned({ planId: plan.id }),
   ]);
   const plannedPorId = new Map(planned.map((w) => [w.id, w]));
@@ -87,9 +87,15 @@ export async function aderencia(plan, semanaAtual) {
   };
 }
 
+/** Realizados do plano ativo (planos arquivados por "Recomeçar" não entram). */
+async function completedDoPlanoAtivo() {
+  const plan = await repo.planoAtivo();
+  return repo.listarCompleted({ planId: plan?.id });
+}
+
 /** Volume acumulado desde o início (minutos e km reais). */
 export async function acumulado() {
-  const completed = await repo.listarCompleted();
+  const completed = await completedDoPlanoAtivo();
   const seg = completed.reduce((a, c) => a + (c.duracaoSeg || 0), 0);
   const metros = completed.reduce((a, c) => a + (c.distanciaMetros || 0), 0);
   return { minutos: Math.round(seg / 60), km: Math.round(metros / 100) / 10, treinos: completed.length };
@@ -97,7 +103,7 @@ export async function acumulado() {
 
 /** Recordes pessoais. */
 export async function recordes() {
-  const completed = await repo.listarCompleted();
+  const completed = await completedDoPlanoAtivo();
   const comDist = completed.filter((c) => c.distanciaMetros != null);
   const comDur = completed.filter((c) => c.duracaoSeg != null);
   const comPace = completed.filter((c) => c.paceSegPorKm != null && c.distanciaMetros >= 1000);

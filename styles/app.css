@@ -124,6 +124,7 @@ body {
 .btn--block { display: flex; width: 100%; }
 .btn--grande { min-height: 56px; font-size: 1.1rem; font-weight: 750; }
 .btn--ghost { background: transparent; }
+.btn--perigo { color: var(--danger); border-color: var(--danger); }
 .btn[disabled] { opacity: .55; cursor: not-allowed; }
 
 /* botão dentro do card accent */

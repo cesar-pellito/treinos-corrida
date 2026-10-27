@@ -36,6 +36,7 @@ export function botao(texto, { onClick, variante, bloco, grande, disabled, id } 
   const classes = ["btn"];
   if (variante === "primary") classes.push("btn--primary");
   if (variante === "ghost") classes.push("btn--ghost");
+  if (variante === "perigo") classes.push("btn--perigo");
   if (bloco) classes.push("btn--block");
   if (grande) classes.push("btn--grande");
   return el("button", { class: classes.join(" "), text: texto, onClick, disabled, id, type: "button" });

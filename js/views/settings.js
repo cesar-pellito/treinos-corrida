@@ -9,7 +9,7 @@ import { exportarBackup, importarBackupTexto, entregarArquivo, estadoBackup } fr
 import * as sync from "../services/sync.js";
 import { aplicarTema } from "../services/theme.js";
 import { calcularZonasFC } from "../services/dominio.js";
-import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio } from "./components/ui.js";
+import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio, abrirSheet } from "./components/ui.js";
 
 const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -160,7 +160,46 @@ export async function renderAjustes(container) {
     ])
   );
 
+  // ---- Recomeçar o plano ----
+  container.appendChild(
+    card([
+      el("p", { class: "eyebrow", text: "Recomeçar" }),
+      el("p", { class: "sub", text: "Volta à configuração inicial para escolher nova data de início e dias de treino. Hoje, Calendário, Histórico e Evolução começam do zero." }),
+      botao("Recomeçar o plano…", { variante: "perigo", bloco: true, onClick: confirmarRecomeco }),
+    ])
+  );
+
   container.appendChild(botao("Ajuda", { bloco: true, onClick: () => irPara("ajuda") }));
+}
+
+function confirmarRecomeco() {
+  const confirmar = botao("Sim, recomeçar do zero", {
+    variante: "perigo", bloco: true, onClick: async () => {
+      confirmar.disabled = true;
+      try {
+        await repo.arquivarPlanoAtivo();
+        await sync.sincronizarSePossivel(); // leva o arquivamento ao Sheets antes de sair
+        location.replace(location.pathname + location.search); // recarrega sem hash -> onboarding
+      } catch (e) {
+        confirmar.disabled = false;
+        toast("Falha ao recomeçar: " + e.message);
+      }
+    },
+  });
+  const fechar = abrirSheet("Recomeçar o plano?", el("div", { class: "stack" }, [
+    el("p", { class: "sub", text: "O plano atual e os treinos registrados saem de todas as telas. Eles não são apagados: continuam guardados no aparelho e entram no backup e na sincronização com o Google Sheets." }),
+    el("p", { class: "sub", text: "Se você importou os treinos no Google Agenda, apague aquele calendário e exporte o .ics de novo depois." }),
+    el("div", { class: "lista-acoes" }, [
+      botao("Exportar backup antes", {
+        bloco: true, onClick: async () => {
+          try { const r = await exportarBackup(); if (r.metodo !== "cancelado") toast("Backup exportado."); }
+          catch (e) { toast("Falha no backup: " + e.message); }
+        },
+      }),
+      confirmar,
+      botao("Cancelar", { variante: "ghost", bloco: true, onClick: () => fechar() }),
+    ]),
+  ]));
 }
 
 function botaoImportar() {

@@ -293,6 +293,31 @@ export async function rodarTestes(seed, reportar) {
   // -------------------------------------------------------------------------
   // Recorrência de desconforto com < 4 treinos (spec #10)
   // -------------------------------------------------------------------------
+  await test("recomeçar: arquiva o plano sem apagar e esconde realizados antigos", async () => {
+    await reset();
+    const pausa = () => new Promise((r) => setTimeout(r, 5)); // criadoEm distintos
+    const velho = await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
+    const w = await repo.salvarPlanned({ planId: velho.id, semana: 1, sessao: "A", dataPlanejada: "2026-08-03", status: "futuro", titulo: "X" }, { novo: true });
+    await repo.registrarTreino({ plannedWorkoutId: w.id, data: "2026-08-03", duracaoSeg: 1500 });
+    await pausa();
+    await repo.registrarTreino({ plannedWorkoutId: null, data: "2026-08-04", duracaoSeg: 900 });
+    await pausa();
+
+    await repo.arquivarPlanoAtivo();
+    eq(await repo.planoAtivo(), null, "sem plano ativo => onboarding");
+    eq((await repo.obterPlano(velho.id)).ativo, false);
+    await pausa();
+    const novo = await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
+    await pausa();
+    await repo.registrarTreino({ plannedWorkoutId: null, data: "2026-11-02", duracaoSeg: 600 });
+
+    eq((await repo.listarCompleted()).length, 3, "nada foi apagado");
+    eq((await repo.listarCompleted({ planId: velho.id })).length, 2, "vinculado + avulso antigos");
+    const doNovo = await repo.listarCompleted({ planId: novo.id });
+    eq(doNovo.length, 1, "só o avulso feito depois do recomeço");
+    eq(doNovo[0].data, "2026-11-02");
+  });
+
   await test("desconforto: recorrência com menos de 4 treinos (spec #10)", async () => {
     await reset();
     const p = await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
