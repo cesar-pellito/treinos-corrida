@@ -198,13 +198,17 @@ O `TOKEN` protege o endpoint: sem ele, o servidor recusa. Como o repositório é
 
 **Stores do hub e Apps Script antigo:** o app só marca como sincronizado o que o servidor devolveu em `records`. Um `Codigo.gs` publicado antes do hub não conhece os stores novos; esses registros ficam **pendentes, sem se perder**, e a tela de sincronização avisa quantos são. Eles sobem quando você republicar o Apps Script atualizado.
 
+> ⚠️ **Republicar o Apps Script (uma vez, para o hub):** abra o projeto do Apps Script, substitua o código pelo `backend/Codigo.gs` atual e faça **Implantar → Gerenciar implantações → Editar (lápis) → Versão: Nova versão → Implantar**. A URL não muda. Depois, no app, **Ajustes → Sincronizar agora**. As abas `weeklySchedule`, `sessionLogs`, `foodLogs`, `bodyMeasurements` e `gravlWorkouts` são criadas sozinhas.
+
+O backup em JSON (**Ajustes → Exportar backup**) já cobre todos os stores do hub desde a primeira versão do hub, com ou sem Sheets. Um backup antigo (só corrida) continua importando normalmente. O lembrete por e-mail continua cobrindo só as corridas do plano.
+
 ---
 
 ## 8. Testes
 
 Abra **`test.html`** (servido por HTTP) — roda asserções em JS puro contra a camada de dados e serviços, e mostra ✓/✗. Cobre: CRUD nos seis stores; cálculo de pace com bordas (distância/tempo zero, vírgula decimal); registrar não altera o planejado além do status; alterar o plano não mexe no realizado; reagendar preserva `dataOriginal`; importar backup não duplica e respeita last-write-wins; trava de duplicação; aderência com semana parcial/vazia; recorrência de desconforto com poucos treinos; `.ics` com `SEQUENCE` e `UID` estável; virada de mês/ano.
 
-Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato; média móvel 7d com dias faltando, 2 pesagens no dia, virada de mês e janela vazia; ritmo semanal e histórico; InBody semeadas uma vez, validação de pesagem e remoção por tombstone; parser CSV (aspas, vírgula, quebra de linha, separador); classificação por grupo com a ordem das regras; datas ISO/dd-mm/mm-dd e Epley; agrupamento por treino e séries sem aquecimento; importação do Gravl que casa com a agenda, remaneja, reaproveita a marcação manual e não duplica ao reimportar; treino que cita outro rótulo não ocupa o item do dia; backup com treino do Gravl de outro ID não aborta.
+Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato; média móvel 7d com dias faltando, 2 pesagens no dia, virada de mês e janela vazia; ritmo semanal e histórico; InBody semeadas uma vez, validação de pesagem e remoção por tombstone; parser CSV (aspas, vírgula, quebra de linha, separador); classificação por grupo com a ordem das regras; datas ISO/dd-mm/mm-dd e Epley; agrupamento por treino e séries sem aquecimento; importação do Gravl que casa com a agenda, remaneja, reaproveita a marcação manual e não duplica ao reimportar; treino que cita outro rótulo não ocupa o item do dia; backup com treino do Gravl de outro ID não aborta; `Codigo.gs` com a mesma lista de stores do app; sync de ida e volta entre dois aparelhos (servidor falso com a regra do Apps Script).
 
 > `test.html` apaga e recria o banco da origem em que roda. Rode em `localhost`, nunca na URL do GitHub Pages onde estão seus dados.
 
@@ -274,6 +278,11 @@ Marque cada item ao validar uma nova instalação.
 - [ ] 1RM estimado de Leg Press e Barbell Bench Press; "Escolher exercícios" troca a lista.
 - [ ] Exercícios sem grupo aparecem no relatório.
 
+**Hub — Fase 5 (sync e backup)**
+- [ ] Apps Script republicado (nova versão, mesma URL); "Sincronizar agora" não mostra registros pendentes.
+- [ ] A planilha ganha as abas `weeklySchedule`, `sessionLogs`, `foodLogs`, `bodyMeasurements` e `gravlWorkouts`.
+- [ ] Exportar backup JSON e importar em outro navegador traz agenda, sessões, refeições, pesagens e Gravl, sem duplicar.
+
 **Robustez**
 - [ ] **Recarregar durante o preenchimento** de um formulário não trava o app (o botão "Atualizar" do service worker só aparece sob confirmação).
 - [ ] Atualização do banco com outra aba aberta mostra "Atualizando os dados do app…" e conclui ao fechar a outra aba (não dá erro).
@@ -284,4 +293,11 @@ Marque cada item ao validar uma nova instalação.
 
 ## 10. O que não está incluído (por decisão)
 
-Web Push; backend/sync server obrigatório; GPS/rastreamento ao vivo; múltiplos planos simultâneos na UI (o schema suporta via `planId`); logger de musculação (fica no Gravl); alertas automáticos de progressão; carga tipo TRIMP; rede social. Campos de `completedWorkouts` (metros, segundos, ISO) já são compatíveis com uma futura importação de Strava/Garmin.
+Web Push; backend/sync server obrigatório; GPS/rastreamento ao vivo; múltiplos planos simultâneos na UI (o schema suporta via `planId`); logger de musculação (fica no Gravl); macros por alimento (as estimativas são por refeição e variante); alertas automáticos, diagnósticos ou recomendações de qualquer tipo; carga tipo TRIMP; rede social. Campos de `completedWorkouts` (metros, segundos, ISO) já são compatíveis com uma futura importação de Strava/Garmin.
+
+---
+
+## 11. Fases futuras (ideias registradas)
+
+- **Importar o export da balança Fitdays.** O arquivo vem com extensão `.csv`, mas é um `.xls` binário (formato BIFF), não texto. Lê-lo exigiria uma biblioteca de leitura de planilhas, o que hoje quebra a regra de zero dependências. Caminhos possíveis quando valer a pena: um leitor BIFF mínimo escrito à mão só para as colunas de peso e % de gordura, ou converter no computador para CSV de verdade e importar por um parser como o do Gravl. Até lá, a pesagem é lançada à mão em "+ Pesagem" (1–2 toques).
+- **Lembrete por e-mail do hub.** O gatilho do Apps Script poderia incluir a musculação e o karatê de amanhã, lendo `weeklySchedule` da planilha.

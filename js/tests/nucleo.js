@@ -884,6 +884,64 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.contarTudo()).gravlWorkouts, 4);
   });
 
+  await test("sync: backend/Codigo.gs conhece todos os stores do app", async () => {
+    const resp = await fetch(new URL("../../backend/Codigo.gs", import.meta.url));
+    const gs = await resp.text();
+    const m = /var STORES = \[([\s\S]*?)\];/.exec(gs);
+    assert(m, "lista STORES encontrada no Codigo.gs");
+    const doGs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort().join(",");
+    eq(doGs, [...TODOS_STORES].sort().join(","), "mesma lista no app e no Apps Script");
+  });
+
+  await test("sync: ida e volta com backend atualizado (11 stores) — outro aparelho recebe tudo", async () => {
+    // Servidor falso com a mesma regra do Codigo.gs: LWW por atualizadoEm e
+    // devolve o que mudou desde `since`, com uma chave por store conhecido.
+    const servidor = Object.fromEntries(TODOS_STORES.map((s) => [s, new Map()]));
+    let relogio = 0;
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      const records = {};
+      for (const s of TODOS_STORES) {
+        const chave = s === "settings" ? "chave" : "id";
+        for (const rec of body.push[s] || []) {
+          const atual = servidor[s].get(rec[chave]);
+          if (!atual || (rec.atualizadoEm || "") > (atual.atualizadoEm || "")) servidor[s].set(rec[chave], { ...rec, _pendingSync: false });
+        }
+        records[s] = [...servidor[s].values()].filter((r) => !body.since || (r.atualizadoEm || "") > body.since);
+      }
+      relogio++;
+      return { ok: true, json: async () => ({ ok: true, serverTime: `2099-01-01T00:00:0${relogio}.000Z`, records }) };
+    };
+    try {
+      // aparelho A
+      await reset();
+      await seedMod.semearHub();
+      const item = (await repo.listarAgenda())[0];
+      await agenda.marcarSessao(item, "2026-11-02", "feito");
+      await nutri.registrarProteinaExtra({ data: "2026-11-02", proteinaG: 30 });
+      await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 85.1 });
+      await repo.importarTreinosGravl(gravl.interpretarCSV(CSV_GRAVL).treinos);
+      await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
+      const contA = await repo.contarTudo();
+      const r = await sync.sincronizar();
+      eq(r.naoAceitos, 0, "backend novo aceita todos os stores");
+      const pend = await repo.listarPendentesSync();
+      for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(pend[s].length, 0, `${s} sincronizado`);
+
+      // aparelho B (banco novo): recebe tudo, sem duplicar o seed
+      await reset();
+      await seedMod.semearHub(); // mesmo seed com UUIDs fixos
+      await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
+      await sync.sincronizar();
+      const contB = await repo.contarTudo();
+      for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(contB[s], contA[s], `${s} igual nos dois aparelhos`);
+      eq((await nutri.carregarDia("2026-11-02")).totais.proteina, 30, "proteína chega ao outro aparelho");
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+  });
+
   await reset();
   return { ok, fail, total: ok + fail };
 }

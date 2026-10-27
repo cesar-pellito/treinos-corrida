@@ -1,6 +1,7 @@
 /**
  * Codigo.gs — backend de sincronização (Google Apps Script) para o app
- * "Treinos de Corrida". Espelha o IndexedDB numa planilha do Google Sheets.
+ * PaceUp (hub de treinos, nutrição e corpo). Espelha o IndexedDB numa
+ * planilha do Google Sheets: uma aba por store, uma linha por registro.
  *
  * NÃO é o banco: o app é a fonte da verdade e funciona 100% offline. Isto aqui
  * é um destino de sincronização/backup na nuvem, com custo zero.
@@ -32,9 +33,24 @@
  *    Pronto: todo dia, na hora escolhida, se houver treino AMANHÃ, você recebe
  *    um e-mail com o resumo. Em dia de descanso, não envia nada.
  * Reagendou um treino? Basta sincronizar; o e-mail usa sempre o dado atual.
+ *
+ * === ATUALIZAR PARA O HUB (versão com agenda, nutrição, corpo e Gravl) ===
+ * Se você já tinha publicado uma versão anterior deste arquivo:
+ * 1. Abra o projeto do Apps Script, apague o conteúdo e cole este arquivo.
+ * 2. Implantar > Gerenciar implantações > (lápis) Editar > Versão: Nova versão
+ *    > Implantar. A URL continua a mesma; não precisa mudar nada no app.
+ * 3. No app, Ajustes > Sincronizar agora. Os registros do hub que estavam
+ *    pendentes sobem nessa hora (o app não os perde enquanto espera).
+ * As abas novas (weeklySchedule, sessionLogs, foodLogs, bodyMeasurements,
+ * gravlWorkouts) são criadas sozinhas na primeira sincronização.
  */
 
-var STORES = ["plans", "phases", "plannedWorkouts", "completedWorkouts", "discomforts", "settings"];
+// O app só marca como sincronizado o que vier em `records` com o nome do
+// store. Um store que falte aqui fica pendente no app (não se perde).
+var STORES = [
+  "plans", "phases", "plannedWorkouts", "completedWorkouts", "discomforts", "settings",
+  "weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"
+];
 var CHAVE = { settings: "chave" }; // demais usam "id"
 
 function doPost(e) {
