@@ -448,6 +448,50 @@ export async function removerSessao(id) {
 }
 
 // ---------------------------------------------------------------------------
+// foodLogs — refeições do plano e proteína extra
+// ---------------------------------------------------------------------------
+
+/**
+ * Registra uma refeição do plano. UMA por (data, refeicaoId): se já existe —
+ * inclusive removida — é EDITADA e reativada, nunca duplicada. `macros` é o
+ * snapshot da estimativa no momento do registro (mudar a tabela de estimativas
+ * depois não reescreve o histórico).
+ */
+export async function registrarRefeicao(dados) {
+  if (!dados.data || !dados.refeicaoId) throw new Error("Refeição sem data ou sem refeicaoId.");
+  if (!(dados.fracao > 0)) throw new Error("Porção inválida.");
+  return comTransacao(STORES.foodLogs, "readwrite", async (tx) => {
+    const doDia = await indexGetAll(tx, STORES.foodLogs, "data", dados.data);
+    const existente = doDia.find((r) => r.tipo === "refeicao" && r.refeicaoId === dados.refeicaoId) || null;
+    const base = existente ? { ...existente } : { id: gerarId(), tipo: "refeicao", escolhas: null };
+    for (const [k, v] of Object.entries(dados)) {
+      if (v !== undefined && k !== "id" && k !== "criadoEm" && k !== "tipo") base[k] = v;
+    }
+    base.removido = false;
+    const carimbado = carimbar(base, { novo: !existente });
+    tx.objectStore(STORES.foodLogs).put(carimbado);
+    return carimbado;
+  });
+}
+
+/** Proteína fora do plano (ex.: um shake). Cada lançamento é um registro. */
+export async function registrarExtra({ data, proteinaG, descricao = null }) {
+  if (!data) throw new Error("Lançamento sem data.");
+  if (!(typeof proteinaG === "number" && proteinaG > 0 && proteinaG < 500)) throw new Error("Proteína extra inválida.");
+  const r = { id: gerarId(), tipo: "extra", data, proteinaG, descricao, removido: false };
+  return put(STORES.foodLogs, r, { novo: true });
+}
+
+/** Registros ativos, por data crescente. `de`/`ate` inclusivos (ISO). */
+export async function listarRegistrosAlimentares({ de, ate } = {}) {
+  const todos = de && ate ? await listarPorData(STORES.foodLogs, de, ate) : await listar(STORES.foodLogs);
+  return todos.filter(ativo).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+}
+export async function removerRegistroAlimentar(id) {
+  return removerLogico(STORES.foodLogs, id);
+}
+
+// ---------------------------------------------------------------------------
 // Backup / sync — TODOS_STORES vem do db.js (inclui os stores do hub)
 // ---------------------------------------------------------------------------
 

@@ -46,12 +46,12 @@ styles/app.css                design system (tema claro/escuro)
 backend/Codigo.gs             Apps Script da sincronização (você publica)
 js/
   app.js                      bootstrap: SW, tema, seed do hub, onboarding/roteamento, sync
-  data/  db.js repository.js seed.js seed-hub.js
+  data/  db.js repository.js seed.js seed-hub.js plano-alimentar.js
   services/  dates pace schedule stats discomfort ics backup sync theme dominio
-             agenda metas
+             agenda metas nutricao
   views/  router today treinos calendar evolution history settings help
-          workout-form workout-detail onboarding agenda-editor metas-editor
-          components/ ui.js charts.js agenda-ui.js
+          workout-form workout-detail onboarding agenda-editor metas-editor nutricao
+          components/ ui.js charts.js agenda-ui.js nutricao-ui.js
   tests/ nucleo.js            asserções do núcleo (rodam em test.html)
 ```
 
@@ -69,7 +69,7 @@ IndexedDB `treinos-corrida`, **versão 2**. A migração só adiciona stores (`i
 |---|---|---|
 | `weeklySchedule` | a semana-padrão | `diaSemana` (0=dom…6=sáb), `periodo` (`manha`/`noite`), `tipo` (`musculacao`/`karate`/`corrida`), `rotulo`, `opcional` |
 | `sessionLogs` | check de musculação e karatê | `data`, `scheduleItemId` (null = fora da agenda), snapshot `tipo`/`rotulo`/`periodo`/`opcional`, `status` (`feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?`, `origem` (`manual`/`gravl`) |
-| `foodLogs` | refeições e proteína extra | *(Fase 2)* |
+| `foodLogs` | refeições do plano e proteína extra | `data`, `tipo` (`refeicao`/`extra`); refeição: `refeicaoId`, `varianteIndex`, `varianteNome`, `fracao` (1, ¾, ½, ¼), snapshot `macros {kcal, prot, carb, gord}`, `escolhas?` (do montar prato); extra: `proteinaG`, `descricao?`. Uma refeição por (data, refeicaoId) — registrar de novo edita |
 | `bodyMeasurements` | pesagens e InBody | *(Fase 3)* |
 | `gravlWorkouts` | treinos importados do Gravl | *(Fase 4)* |
 
@@ -81,9 +81,10 @@ Cada registro carrega `atualizadoEm` e `_pendingSync` para a sincronização opc
 
 ## 2.1 Navegação e definições
 
-Barra inferior: **Hoje · Treinos · Ajustes** (Nutrição e Corpo entram nas próximas fases).
+Barra inferior: **Hoje · Treinos · Nutrição · Ajustes** (Corpo entra na próxima fase).
 
-- **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), resumo da semana e próxima corrida.
+- **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida.
+- **Nutrição** (porte do App_Dieta): *Refeições* — abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia, e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
 - **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
 - **Ajustes:** Agenda semanal, Metas, preferências da corrida, `.ics`, backup, sincronização e "Recomeçar o plano de corrida".
 
@@ -93,6 +94,12 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 - **Previstos da semana:** itens não opcionais da agenda + corridas do plano na semana.
 - **Aderência:** feitos ÷ previstos. Opcional feito e treino fora da agenda contam como *extra*. "Pulado" aparece separado e não conta como feito.
 - **Lower da semana:** sessões de musculação **feitas** com rótulo começando por "Lower", em qualquer dia (inclusive fora da agenda).
+- **Proteína do dia:** soma de `macros.prot × fração` das refeições registradas mais a proteína extra. As macros vêm da tabela de **estimativas** por refeição e variante (`MACROS` em `js/data/plano-alimentar.js`), não são valores oficiais da nutricionista, e a interface sempre mostra o selo "estimativa".
+- **Bateu a meta:** proteína do dia ≥ mínimo configurado em Metas.
+- **Média semanal de proteína:** só dos dias com algum registro; dias sem registro aparecem à parte, para que esquecer de lançar não pareça dia de proteína baixa.
+
+### Plano alimentar
+O `PLANO` do App_Dieta foi copiado **sem alteração** para `js/data/plano-alimentar.js` (só ganhou `export`), com o comentário de manutenção original: quantidades literais do PDF, `quantidade: null` quando o PDF não informa, blocos que se somam e opções excludentes dentro do bloco. O `App_Dieta/` continua na pasta como referência.
 
 ### Corrida em 2 vezes por semana
 O plano de 22 semanas foi escrito para 3 sessões. Com 2 dias (quinta e sábado), o app segue a regra do próprio plano: nas fases 1 e 2 sai a sessão B; nas fases 3 e 4 sai a A, mantendo a de qualidade (B) e a rodagem longa (C). São 44 treinos, e a sessão mais longa fica sempre no dia mais tarde da semana. Para recomeçar da semana 1: **Ajustes → Recomeçar o plano de corrida**, escolha Qui + Sáb e a data de início. O plano anterior é arquivado, não apagado.
@@ -182,7 +189,7 @@ O `TOKEN` protege o endpoint: sem ele, o servidor recusa. Como o repositório é
 
 Abra **`test.html`** (servido por HTTP) — roda asserções em JS puro contra a camada de dados e serviços, e mostra ✓/✗. Cobre: CRUD nos seis stores; cálculo de pace com bordas (distância/tempo zero, vírgula decimal); registrar não altera o planejado além do status; alterar o plano não mexe no realizado; reagendar preserva `dataOriginal`; importar backup não duplica e respeita last-write-wins; trava de duplicação; aderência com semana parcial/vazia; recorrência de desconforto com poucos treinos; `.ics` com `SEQUENCE` e `UID` estável; virada de mês/ano.
 
-Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar.
+Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato.
 
 > `test.html` apaga e recria o banco da origem em que roda. Rode em `localhost`, nunca na URL do GitHub Pages onde estão seus dados.
 
@@ -225,6 +232,16 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Ajustes → Agenda semanal: adicionar, editar e remover; o histórico não muda.
 - [ ] Ajustes → Metas salva e recusa valores incoerentes (máximo < mínimo).
 - [ ] Ícone novo (três anéis) na tela inicial depois de reinstalar ou atualizar.
+
+**Hub — Fase 2 (nutrição)**
+- [ ] Hoje: ✓ numa refeição soma a proteína estimada em 1 toque; tocar de novo desfaz.
+- [ ] Tocar no nome da refeição permite escolher a variante e "comi metade / ¾ / ¼"; a soma acompanha.
+- [ ] "+ Proteína extra" soma os gramas e o lançamento pode ser removido.
+- [ ] O selo **"estimativa"** aparece em toda soma de macros.
+- [ ] Nutrição abre na refeição do horário; variantes, Macros, montar prato e busca funcionam como no App_Dieta.
+- [ ] Busca "pao" acha o grupo dos pães; termo fora da lista mostra que o plano não prevê a troca.
+- [ ] Semana: dias na meta e média contam só dias com registro.
+- [ ] Orientações mostra hidratação, refeição livre, orientações e links.
 
 **Robustez**
 - [ ] **Recarregar durante o preenchimento** de um formulário não trava o app (o botão "Atualizar" do service worker só aparece sob confirmação).

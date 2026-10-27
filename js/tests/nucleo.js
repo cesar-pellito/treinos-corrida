@@ -13,6 +13,7 @@ import { apagarDB, abrirDB, migrarPara1, DB_NOME, TODOS_STORES } from "../data/d
 import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as sync from "../services/sync.js";
+import * as nutri from "../services/nutricao.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -584,6 +585,80 @@ export async function rodarTestes(seed, reportar) {
     const r2 = await repo.importarBackup(dump);
     eq(r2.criados, 0, "2ª importação não cria nada");
     eq((await repo.contarTudo()).weeklySchedule, 1, "sem duplicar");
+  });
+
+  // -------------------------------------------------------------------------
+  // Nutrição
+  // -------------------------------------------------------------------------
+  await test("plano alimentar: quantidades literais preservadas (amostras do PDF)", () => {
+    const P = nutri.PLANO;
+    eq(P.versao, "08/07/2026");
+    eq(P.refeicoes.map((r) => r.id).join(","), "cafe,almoco,lanche,jantar");
+    const op = (refId, vi, grupo, alimento) =>
+      nutri.obterRefeicao(refId).variantes[vi].blocos.find((b) => b.grupo === grupo).opcoes.find((o) => o.alimento === alimento);
+    eq(op("cafe", 0, "GRUPO DOS PÃES", "Pão de forma").quantidade, "2 fatias");
+    eq(op("cafe", 0, "GRUPO DAS CARNES ou LEITES E DERIVADOS", "Queijo branco").quantidade, "2 fatias grossas (50g)");
+    eq(op("cafe", 0, "SUPLEMENTO", "Whey Protein").quantidade, "30g");
+    eq(op("almoco", 0, "GRUPO DE ARROZ", "Arroz Integral").quantidade, "110g");
+    eq(op("almoco", 0, "GRUPO DAS LEGUMINOSAS", "Feijão").quantidade, "120g");
+    eq(nutri.obterRefeicao("lanche").variantes.length, 2, "lanche com 2 alternativas");
+    eq(nutri.obterRefeicao("jantar").variantes.map((v) => v.nome).join("|"), "Prato|Sanduíche");
+    eq(P.substituicoes["GRUPO DOS PÃES – 1 porção"][0].medida, "1und");
+  });
+
+  await test("nutrição: proteína do dia = refeições × porção + extras; removido não soma", async () => {
+    await reset();
+    const d = "2026-11-03";
+    await nutri.registrarRefeicao({ data: d, refeicaoId: "cafe", varianteIndex: 0 });              // 43
+    await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0, fracao: 0.5 }); // 24
+    await nutri.registrarProteinaExtra({ data: d, proteinaG: 25, descricao: "shake" });            // 25
+    let dia = await nutri.carregarDia(d);
+    eq(dia.totais.proteina, 92, "43 + 48×0,5 + 25");
+    eq(dia.totais.proteinaExtra, 25);
+
+    // registrar o almoço de novo EDITA (não duplica)
+    await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0, fracao: 1 });
+    dia = await nutri.carregarDia(d);
+    eq(dia.registros.filter((r) => r.refeicaoId === "almoco").length, 1, "uma só refeição de almoço");
+    eq(dia.totais.proteina, 116, "43 + 48 + 25");
+
+    // desfazer = tombstone; some da soma
+    await nutri.desfazerRegistro(dia.extras[0]);
+    eq((await nutri.carregarDia(d)).totais.proteina, 91, "sem o extra");
+    eq((await repo.contarTudo()).foodLogs, 3, "o extra continua no banco (removido)");
+
+    // snapshot: a variante do jantar guarda as macros daquele momento
+    const j = await nutri.registrarRefeicao({ data: d, refeicaoId: "jantar", varianteIndex: 1 });
+    eq(j.macros.prot, 37); eq(j.varianteNome, "Sanduíche");
+    eq(await nutri.ultimaVariante("jantar"), 1, "padrão do 1 toque = última variante usada");
+  });
+
+  await test("nutrição: semana de proteína — média só dos dias com registro", () => {
+    const metas = { ...METAS_PADRAO };
+    const R = (data, prot) => ({ tipo: "extra", data, proteinaG: prot });
+    const registros = [R("2026-11-02", 160), R("2026-11-03", 120), R("2026-11-05", 155), R("2026-11-05", 10)];
+    const s = nutri.resumirSemanaProteina({ registros, inicio: "2026-11-02", metas, hoje: "2026-11-06" });
+    eq(s.diasComRegistro, 3);
+    eq(s.diasMeta, 2, "160 e 165 batem; 120 não");
+    eq(s.media, 148, "(160+120+165)/3");
+    eq(s.diasSemRegistro, 2, "quarta e sexta (sábado e domingo são futuros)");
+    eq(s.dias.filter((d) => d.futuro).length, 2);
+  });
+
+  await test("nutrição: busca de substituição sem acento e montar prato com pendências", () => {
+    const achados = nutri.procurarSubstituicoes("pao");
+    assert(achados.some((a) => a.grupo.startsWith("GRUPO DOS PÃES")), "acha o grupo dos pães sem acento");
+    eq(nutri.procurarSubstituicoes("xyzinexistente").length, 0);
+    eq(JSON.stringify(nutri.partesDoGrupo("GRUPO DOS PÃES – 1 porção")), JSON.stringify({ titulo: "GRUPO DOS PÃES", nota: "1 porção" }));
+
+    const cafe = nutri.obterRefeicao("cafe").variantes[0].blocos;
+    const escolhas = { [cafe[0].grupo]: cafe[0].opcoes[0] };
+    const r = nutri.resumoDoPrato("cafe", 0, escolhas);
+    eq(r.itens.length, 1);
+    eq(r.total, cafe.length);
+    eq(r.pendentes.join("|"), "GRUPO DAS CARNES ou LEITES E DERIVADOS|SUPLEMENTO", "opcionais (café, açúcar) não pendem");
+    eq(nutri.refeicaoDoHorario(9), "cafe"); eq(nutri.refeicaoDoHorario(14), "almoco");
+    eq(nutri.refeicaoDoHorario(18), "lanche"); eq(nutri.refeicaoDoHorario(21), "jantar");
   });
 
   await reset();
