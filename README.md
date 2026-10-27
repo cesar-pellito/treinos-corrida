@@ -32,7 +32,7 @@ Regra de ouro: a UI nunca toca no IndexedDB. Tudo passa por `js/data/repository.
 - Hub: **uma sessão por (data, item da agenda)** — marcar de novo edita o registro; nunca duplica.
 - Hub: exclusão é **lógica** (`removido: true`, o *tombstone*). O sync e o backup não têm DELETE: um registro apagado de verdade voltaria do Sheets. As listagens filtram removidos.
 - Hub: registros guardam um **snapshot** do que era previsto (tipo, rótulo, período). Editar a agenda vale daqui para frente e não reescreve o histórico.
-- Seeds do hub (agenda-padrão) usam **UUIDs fixos** gerados uma vez com `crypto.randomUUID()` (`js/data/seed-hub.js`): reinstalar ou sincronizar outro aparelho não duplica.
+- Seeds do hub (agenda-padrão e as 3 InBody iniciais) usam **UUIDs fixos** gerados uma vez com `crypto.randomUUID()` (`js/data/seed-hub.js`): reinstalar ou sincronizar outro aparelho não duplica.
 
 ### Unidades e datas
 Internamente: distância em **metros**, duração em **segundos**, timestamps ISO. Formatação (km, `mm:ss`, `6:48 /km`) só na camada de apresentação. Datas de calendário em ISO **tratadas em fuso local** (`js/services/dates.js`) para evitar o clássico bug de `new Date('2026-08-03')` virar o dia anterior por interpretação UTC.
@@ -48,10 +48,10 @@ js/
   app.js                      bootstrap: SW, tema, seed do hub, onboarding/roteamento, sync
   data/  db.js repository.js seed.js seed-hub.js plano-alimentar.js
   services/  dates pace schedule stats discomfort ics backup sync theme dominio
-             agenda metas nutricao
+             agenda metas nutricao corpo
   views/  router today treinos calendar evolution history settings help
-          workout-form workout-detail onboarding agenda-editor metas-editor nutricao
-          components/ ui.js charts.js agenda-ui.js nutricao-ui.js
+          workout-form workout-detail onboarding agenda-editor metas-editor nutricao corpo
+          components/ ui.js charts.js agenda-ui.js nutricao-ui.js corpo-ui.js
   tests/ nucleo.js            asserções do núcleo (rodam em test.html)
 ```
 
@@ -70,7 +70,7 @@ IndexedDB `treinos-corrida`, **versão 2**. A migração só adiciona stores (`i
 | `weeklySchedule` | a semana-padrão | `diaSemana` (0=dom…6=sáb), `periodo` (`manha`/`noite`), `tipo` (`musculacao`/`karate`/`corrida`), `rotulo`, `opcional` |
 | `sessionLogs` | check de musculação e karatê | `data`, `scheduleItemId` (null = fora da agenda), snapshot `tipo`/`rotulo`/`periodo`/`opcional`, `status` (`feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?`, `origem` (`manual`/`gravl`) |
 | `foodLogs` | refeições do plano e proteína extra | `data`, `tipo` (`refeicao`/`extra`); refeição: `refeicaoId`, `varianteIndex`, `varianteNome`, `fracao` (1, ¾, ½, ¼), snapshot `macros {kcal, prot, carb, gord}`, `escolhas?` (do montar prato); extra: `proteinaG`, `descricao?`. Uma refeição por (data, refeicaoId) — registrar de novo edita |
-| `bodyMeasurements` | pesagens e InBody | *(Fase 3)* |
+| `bodyMeasurements` | pesagens (balança Fitdays) e InBody | `data`, `hora?`, `tipo` (`pesagem`/`inbody`), `pesoKg`; pesagem: `gorduraPct?`, `massaMuscularKg?`, `gorduraVisceral?`; InBody: `massaGorduraKg`, `massaLivreGorduraKg`, `massaMuscularEsqueleticaKg`, `gorduraPct` |
 | `gravlWorkouts` | treinos importados do Gravl | *(Fase 4)* |
 
 Metas ficam em `settings`, na chave `metas` (ver `js/services/metas.js`).
@@ -81,10 +81,11 @@ Cada registro carrega `atualizadoEm` e `_pendingSync` para a sincronização opc
 
 ## 2.1 Navegação e definições
 
-Barra inferior: **Hoje · Treinos · Nutrição · Ajustes** (Corpo entra na próxima fase).
+Barra inferior: **Hoje · Treinos · Nutrição · Corpo · Ajustes**.
 
 - **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida.
 - **Nutrição** (porte do App_Dieta): *Refeições* — abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia, e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
+- **Corpo:** última pesagem, média de 7 dias, ritmo semanal contra a faixa e quanto falta até o peso-alvo; gráfico de peso (30/90 dias/tudo) com pesagens, média 7d, InBody marcadas e linha do alvo; ritmo das últimas 8 semanas com a faixa-alvo sombreada; InBody com variação entre avaliações; pesagens recentes (tocar edita ou remove). Hoje mostra o resumo do peso com "+ Pesagem" (último peso já preenchido, ±0,1).
 - **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
 - **Ajustes:** Agenda semanal, Metas, preferências da corrida, `.ics`, backup, sincronização e "Recomeçar o plano de corrida".
 
@@ -97,6 +98,9 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 - **Proteína do dia:** soma de `macros.prot × fração` das refeições registradas mais a proteína extra. As macros vêm da tabela de **estimativas** por refeição e variante (`MACROS` em `js/data/plano-alimentar.js`), não são valores oficiais da nutricionista, e a interface sempre mostra o selo "estimativa".
 - **Bateu a meta:** proteína do dia ≥ mínimo configurado em Metas.
 - **Média semanal de proteína:** só dos dias com algum registro; dias sem registro aparecem à parte, para que esquecer de lançar não pareça dia de proteína baixa.
+- **Valor do dia (peso):** média das pesagens daquele dia. As InBody são referência e não entram na média.
+- **Média móvel de 7 dias** em d: média dos valores diários em [d−6, d].
+- **Ritmo semanal:** média 7d de hoje − média 7d de 7 dias atrás, mostrado como perda (positivo = perdeu). Só aparece com pesagens nas duas janelas. É comparado com a faixa de Metas ("dentro", "abaixo" ou "acima da faixa") — só descrição, sem recomendação.
 
 ### Plano alimentar
 O `PLANO` do App_Dieta foi copiado **sem alteração** para `js/data/plano-alimentar.js` (só ganhou `export`), com o comentário de manutenção original: quantidades literais do PDF, `quantidade: null` quando o PDF não informa, blocos que se somam e opções excludentes dentro do bloco. O `App_Dieta/` continua na pasta como referência.
@@ -242,6 +246,13 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Busca "pao" acha o grupo dos pães; termo fora da lista mostra que o plano não prevê a troca.
 - [ ] Semana: dias na meta e média contam só dias com registro.
 - [ ] Orientações mostra hidratação, refeição livre, orientações e links.
+
+**Hub — Fase 3 (corpo)**
+- [ ] As 3 InBody (08/07, 21/08 e 02/10/2026) aparecem em Corpo e no gráfico.
+- [ ] "+ Pesagem" abre com o último peso preenchido; ± ajusta 0,1; salvar atualiza Hoje e Corpo.
+- [ ] Média de 7 dias e ritmo semanal batem com as pesagens; ritmo só aparece com 2 semanas de dados.
+- [ ] A faixa 0,3–0,5 kg/semana aparece sombreada no gráfico de ritmo e muda se você mudar em Metas.
+- [ ] Tocar numa pesagem permite editar ou remover.
 
 **Robustez**
 - [ ] **Recarregar durante o preenchimento** de um formulário não trava o app (o botão "Atualizar" do service worker só aparece sob confirmação).

@@ -492,6 +492,30 @@ export async function removerRegistroAlimentar(id) {
 }
 
 // ---------------------------------------------------------------------------
+// bodyMeasurements — pesagens (balança) e InBody
+// ---------------------------------------------------------------------------
+export const TIPOS_MEDIDA = ["pesagem", "inbody"];
+
+/** Cria ou edita uma medida. Peso em kg; percentuais em %. */
+export async function salvarMedida(m) {
+  if (!TIPOS_MEDIDA.includes(m.tipo)) throw new Error(`Tipo de medida inválido: ${m.tipo}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(m.data || "")) throw new Error("Data inválida.");
+  if (!(typeof m.pesoKg === "number" && m.pesoKg > 20 && m.pesoKg < 400)) throw new Error("Peso inválido.");
+  const r = { hora: null, removido: false, ...m, id: m.id || gerarId() };
+  return put(STORES.bodyMeasurements, r, { novo: !m.criadoEm });
+}
+/** Medidas ativas, por data (e hora) crescente. */
+export async function listarMedidas({ tipo } = {}) {
+  const todas = (await listar(STORES.bodyMeasurements)).filter(ativo);
+  const r = tipo ? todas.filter((m) => m.tipo === tipo) : todas;
+  const k = (m) => `${m.data}T${m.hora || "00:00"}`;
+  return r.sort((a, b) => (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0));
+}
+export async function removerMedida(id) {
+  return removerLogico(STORES.bodyMeasurements, id);
+}
+
+// ---------------------------------------------------------------------------
 // Backup / sync — TODOS_STORES vem do db.js (inclui os stores do hub)
 // ---------------------------------------------------------------------------
 

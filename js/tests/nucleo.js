@@ -14,6 +14,7 @@ import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as sync from "../services/sync.js";
 import * as nutri from "../services/nutricao.js";
+import * as corpo from "../services/corpo.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -659,6 +660,65 @@ export async function rodarTestes(seed, reportar) {
     eq(r.pendentes.join("|"), "GRUPO DAS CARNES ou LEITES E DERIVADOS|SUPLEMENTO", "opcionais (café, açúcar) não pendem");
     eq(nutri.refeicaoDoHorario(9), "cafe"); eq(nutri.refeicaoDoHorario(14), "almoco");
     eq(nutri.refeicaoDoHorario(18), "lanche"); eq(nutri.refeicaoDoHorario(21), "jantar");
+  });
+
+  // -------------------------------------------------------------------------
+  // Corpo
+  // -------------------------------------------------------------------------
+  await test("corpo: média móvel 7d com dias faltando, 2 pesagens no dia e virada de mês", () => {
+    const P = (data, pesoKg, tipo = "pesagem") => ({ data, pesoKg, tipo });
+    const pesagens = [
+      P("2026-10-27", 86.0), P("2026-10-27", 85.6),   // mesmo dia => 85,8
+      P("2026-10-29", 85.6),
+      P("2026-10-31", 85.4),
+      P("2026-11-02", 85.2),                          // virada de mês
+      P("2026-10-30", 99.9, "inbody"),                // InBody não entra
+      { ...P("2026-10-30", 50), removido: true },     // removido não entra
+    ];
+    const serie = corpo.serieDiaria(pesagens);
+    eq(serie.map((p) => p.data).join(","), "2026-10-27,2026-10-29,2026-10-31,2026-11-02");
+    eq(serie[0].peso, 85.8, "média do dia");
+    eq(corpo.mediaEm(serie, "2026-11-02"), 85.5, "(85,8+85,6+85,4+85,2)/4 — 27/10 está na janela [27/10, 02/11]");
+    eq(corpo.mediaEm(serie, "2026-11-03"), 85.4, "27/10 sai da janela");
+    eq(corpo.mediaEm(serie, "2026-10-20"), null, "janela sem pesagem => null");
+    const mm = corpo.mediaMovel7(serie);
+    eq(mm[1].media, 85.7, "29/10: (85,8+85,6)/2");
+  });
+
+  await test("corpo: ritmo semanal = média 7d de hoje − de 7 dias atrás; null sem as 2 janelas", () => {
+    const serie = [
+      { data: "2026-10-20", peso: 86.4 }, { data: "2026-10-22", peso: 86.2 },
+      { data: "2026-10-27", peso: 85.9 }, { data: "2026-10-29", peso: 85.7 },
+    ];
+    const r = corpo.ritmoSemanal(serie, "2026-10-29");
+    eq(r.anterior, 86.3, "janela 16–22/10");
+    eq(r.atual, 85.8, "janela 23–29/10");
+    eq(r.kgSemana, 0.5, "perdeu 0,5 kg");
+    eq(corpo.situacaoRitmo(0.5, METAS_PADRAO), "dentro da faixa");
+    eq(corpo.situacaoRitmo(0.2, METAS_PADRAO), "abaixo da faixa");
+    eq(corpo.situacaoRitmo(0.8, METAS_PADRAO), "acima da faixa");
+    eq(corpo.ritmoSemanal(serie.slice(2), "2026-10-29"), null, "sem a semana anterior");
+    const h = corpo.historicoRitmo(serie, 3, "2026-10-29");
+    eq(h.length, 3); eq(h[2].kgSemana, 0.5); eq(h[0].kgSemana, null);
+  });
+
+  await test("corpo: InBody iniciais semeadas uma vez; pesagem validada; remover é tombstone", async () => {
+    await reset();
+    eq((await seedMod.semearHub()).inbody, 3);
+    eq((await seedMod.semearHub()).inbody, 0, "2ª vez não insere");
+    const ib = await repo.listarMedidas({ tipo: "inbody" });
+    eq(ib.map((m) => m.data).join(","), "2026-07-08,2026-08-21,2026-10-02");
+    eq(ib[2].massaMuscularEsqueleticaKg, 35.7); eq(ib[1].massaLivreGorduraKg, 65.4); eq(ib[0].gorduraPct, 28.8);
+
+    let lancou = false;
+    try { await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 5 }); } catch { lancou = true; }
+    assert(lancou, "peso absurdo recusado");
+    const p = await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 85.2, gorduraPct: 26.5 });
+    const c = await corpo.carregarCorpo("2026-11-02");
+    eq(c.ultima.pesoKg, 85.2); eq(c.media7, 85.2); eq(c.faltamKg, 7.2, "85,2 − 78");
+    await corpo.removerMedida(p);
+    eq((await corpo.carregarCorpo("2026-11-02")).ultima, null, "removida sai das telas");
+    eq((await repo.contarTudo()).bodyMeasurements, 4, "continua no banco (tombstone)");
   });
 
   await reset();

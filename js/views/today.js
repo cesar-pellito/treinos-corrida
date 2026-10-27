@@ -5,11 +5,13 @@ import * as repo from "../data/repository.js";
 import { resumoHoje } from "../services/schedule.js";
 import { carregarDia, carregarSemana } from "../services/agenda.js";
 import { carregarDia as carregarDiaNutricao } from "../services/nutricao.js";
+import { carregarCorpo } from "../services/corpo.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../services/dates.js";
 import { irPara } from "./router.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/agenda-ui.js";
 import { cardProteina, cardRefeicoesHoje } from "./components/nutricao-ui.js";
+import { cardPeso } from "./components/corpo-ui.js";
 
 function dataExtensa(iso) {
   const d = deISODate(iso);
@@ -50,11 +52,12 @@ function cardProximaCorrida(resumo) {
 export async function renderHoje(container) {
   const data = hojeISO();
   const plan = await repo.planoAtivo();
-  const [entradas, semana, resumoCorrida, nutricao] = await Promise.all([
+  const [entradas, semana, resumoCorrida, nutricao, corpo] = await Promise.all([
     carregarDia(data),
     carregarSemana(data),
     plan ? resumoHoje(plan, data) : Promise.resolve(null),
     carregarDiaNutricao(data),
+    carregarCorpo(data),
   ]);
 
   container.appendChild(tituloVista("Hoje"));
@@ -64,6 +67,7 @@ export async function renderHoje(container) {
   container.appendChild(cardProteina(nutricao));
   container.appendChild(cardRefeicoesHoje(nutricao));
   container.appendChild(cardResumoSemana(semana, { titulo: "Esta semana" }));
+  container.appendChild(cardPeso(corpo));
 
   const temCorridaHoje = entradas.some((e) => e.tipo === "corrida");
   if (resumoCorrida && !temCorridaHoje) {

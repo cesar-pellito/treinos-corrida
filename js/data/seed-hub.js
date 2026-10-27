@@ -20,3 +20,10 @@ export const AGENDA_PADRAO = [
   { id: "690c2543-22e7-46c3-a2a4-c6be149b50c6", diaSemana: 6, periodo: "manha", tipo: "corrida", rotulo: "Corrida Z2", opcional: false, ordem: 0 },
   { id: "45f44f53-b0b2-4433-b59e-bc58cd361f45", diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B", opcional: false, ordem: 0 },
 ];
+
+// Suas avaliações InBody (referência). Massas em kg; gorduraPct em %.
+export const INBODY_INICIAIS = [
+  { id: "aa0e4502-1abf-4b47-bf67-e627234caf47", tipo: "inbody", fonte: "inbody", data: "2026-07-08", pesoKg: 91.5, massaGorduraKg: 26.4, massaLivreGorduraKg: 65.1, massaMuscularEsqueleticaKg: 37.2, gorduraPct: 28.8 },
+  { id: "b7903695-c883-439d-a501-1d874c197c1d", tipo: "inbody", fonte: "inbody", data: "2026-08-21", pesoKg: 89.8, massaGorduraKg: 24.4, massaLivreGorduraKg: 65.4, massaMuscularEsqueleticaKg: 37.2, gorduraPct: 27.2 },
+  { id: "9770a190-1876-41cb-a323-19aa619dd6af", tipo: "inbody", fonte: "inbody", data: "2026-10-02", pesoKg: 85.8, massaGorduraKg: 23.1, massaLivreGorduraKg: 62.7, massaMuscularEsqueleticaKg: 35.7, gorduraPct: 26.9 },
+];

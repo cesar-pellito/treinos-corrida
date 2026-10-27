@@ -2,6 +2,7 @@
 //   #/hoje                 -> aba
 //   #/treinos/<segmento>   -> aba Treinos (semana | corrida | evolucao | historico)
 //   #/nutricao/<segmento>  -> aba Nutrição (refeicoes | semana | orientacoes)
+//   #/corpo                -> aba Corpo
 //   #/registrar/<planId>   -> formulário (registro de um treino planejado)
 //   #/avulso               -> formulário (treino fora do plano)
 //   #/editar/<compId>      -> formulário (edição de treino realizado)
@@ -16,6 +17,7 @@
 import { renderHoje } from "./today.js";
 import { renderTreinos } from "./treinos.js";
 import { renderNutricao } from "./nutricao.js";
+import { renderCorpo } from "./corpo.js";
 import { renderAjustes } from "./settings.js";
 import { renderAjuda } from "./help.js";
 import { renderFormulario } from "./workout-form.js";
@@ -24,7 +26,7 @@ import { renderEditorAgenda } from "./agenda-editor.js";
 import { renderEditorMetas } from "./metas-editor.js";
 import { el, limpar } from "./components/ui.js";
 
-const ABAS = { hoje: renderHoje, treinos: renderTreinos, nutricao: renderNutricao, ajustes: renderAjustes };
+const ABAS = { hoje: renderHoje, treinos: renderTreinos, nutricao: renderNutricao, corpo: renderCorpo, ajustes: renderAjustes };
 const ALIASES = { calendario: ["treinos", "corrida"], evolucao: ["treinos", "evolucao"], historico: ["treinos", "historico"] };
 const CHEIAS = {
   registrar: (c, p) => renderFormulario(c, { modo: "registro", id: p }),

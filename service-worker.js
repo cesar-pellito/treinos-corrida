@@ -10,7 +10,7 @@
 //
 // Ao mudar qualquer arquivo da casca, incremente CACHE_VERSAO.
 
-const CACHE_VERSAO = "v9";
+const CACHE_VERSAO = "v10";
 const CACHE_NOME = `treinos-corrida-${CACHE_VERSAO}`;
 
 const CASCA = [
@@ -25,6 +25,7 @@ const CASCA = [
   "./js/views/today.js",
   "./js/views/treinos.js",
   "./js/views/nutricao.js",
+  "./js/views/corpo.js",
   "./js/views/agenda-editor.js",
   "./js/views/metas-editor.js",
   "./js/views/calendar.js",
@@ -38,6 +39,7 @@ const CASCA = [
   "./js/views/components/charts.js",
   "./js/views/components/agenda-ui.js",
   "./js/views/components/nutricao-ui.js",
+  "./js/views/components/corpo-ui.js",
   "./js/services/schedule.js",
   "./js/services/dates.js",
   "./js/services/pace.js",
@@ -51,6 +53,7 @@ const CASCA = [
   "./js/services/agenda.js",
   "./js/services/metas.js",
   "./js/services/nutricao.js",
+  "./js/services/corpo.js",
   "./js/data/db.js",
   "./js/data/repository.js",
   "./js/data/seed.js",

@@ -489,3 +489,34 @@ input[type="date"], input[type="text"], input[type="number"], select {
 .citacao { font-size: 1.05rem; font-style: italic; margin: 4px 0 8px; }
 .lista-orientacoes { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; }
 .link-cupom { text-decoration: none; color: inherit; }
+
+/* ---------- Corpo ---------- */
+.peso-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 8px; }
+.peso-resumo > div { display: flex; flex-direction: column; gap: 2px; }
+.peso-resumo .rotulo { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 650; }
+.peso-resumo .grande { font-size: 1.25rem; }
+.kpi .n { font-size: 1.25rem; line-height: 1.2; }
+button.mini { width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.inbody-item .esq { gap: 2px; }
+
+.stepper { display: grid; grid-template-columns: var(--tap) 1fr var(--tap); gap: 8px; }
+.stepper input { text-align: center; font-size: 1.3rem; font-weight: 750; }
+.stepper__btn { padding: 0; font-size: 1.3rem; }
+.mais-campos { border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.mais-campos summary { cursor: pointer; font-weight: 650; color: var(--muted); }
+.mais-campos[open] summary { margin-bottom: 10px; }
+
+.grafico .grade { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+.grafico .rotulo-y { fill: var(--muted); font-size: 9px; }
+.grafico .linha-alvo { stroke: var(--ok); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.grafico .rotulo-alvo { fill: var(--ok); font-size: 9px; font-weight: 700; }
+.grafico .ponto-cru { fill: var(--muted); opacity: .55; }
+.grafico .marcador-inbody { fill: var(--warn); stroke: var(--surface); stroke-width: 1.5; }
+.grafico .faixa-alvo { fill: var(--accent-weak); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+.grafico .barra--ganho { fill: var(--muted); }
+.legenda .leg-ponto { background: var(--muted); opacity: .6; width: 7px; height: 7px; }
+.legenda .leg-linha { background: var(--accent); width: 16px; height: 3px; border-radius: 2px; }
+.legenda .leg-inbody { background: var(--warn); transform: rotate(45deg); border-radius: 1px; width: 8px; height: 8px; }
+.legenda .leg-alvo { background: none; border-top: 2px dashed var(--ok); width: 16px; height: 0; border-radius: 0; }
+.par-acoes { grid-template-columns: 1fr 1fr; }
+.par-acoes .btn { justify-content: center; }
