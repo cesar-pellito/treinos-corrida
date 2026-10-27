@@ -2,6 +2,8 @@
 // semeia o plano e entrega o controle ao app.
 
 import * as seed from "../data/seed.js";
+import * as repo from "../data/repository.js";
+import { importarBackupTexto } from "../services/backup.js";
 import { listarAgendaOrdenada } from "../services/agenda.js";
 import { hoje, diaDaSemana, somarDias } from "../services/dates.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
@@ -110,4 +112,43 @@ export async function renderOnboarding(container, onDone) {
       botaoCriar,
     ])
   );
+
+  container.appendChild(cardRestaurar());
+}
+
+/**
+ * App reinstalado ou aparelho novo: restaura o backup JSON direto da primeira
+ * tela (Ajustes ainda não está acessível sem plano). Se o backup trouxer um
+ * plano ativo, recarrega e entra no app; senão, os dados ficam e o plano é
+ * criado acima.
+ */
+function cardRestaurar() {
+  const status = el("p", { class: "sub" });
+  const input = el("input", { type: "file", accept: "application/json,.json", style: { display: "none" } });
+  const b = botao("Restaurar de um backup (JSON)", { bloco: true, onClick: () => input.click() });
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    b.disabled = true;
+    status.textContent = "Restaurando…";
+    try {
+      const rel = await importarBackupTexto(await file.text());
+      if (await repo.planoAtivo()) {
+        location.replace(location.pathname + location.search); // entra no app com os dados restaurados
+        return;
+      }
+      status.textContent = `Backup restaurado (${rel.criados} registros), mas sem plano de corrida ativo. Crie o plano acima.`;
+    } catch (e) {
+      status.textContent = "Não foi possível restaurar: " + (e && e.message);
+    }
+    b.disabled = false;
+  });
+  return card([
+    el("p", { class: "eyebrow", text: "Já usa o PaceUp?" }),
+    el("p", { class: "sub", text: "Reinstalou o app ou trocou de aparelho? Escolha o arquivo de backup que você exportou em Ajustes. Seus treinos, agenda e refeições voltam como estavam." }),
+    b,
+    input,
+    status,
+  ]);
 }
