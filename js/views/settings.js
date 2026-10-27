@@ -10,6 +10,7 @@ import * as sync from "../services/sync.js";
 import { aplicarTema } from "../services/theme.js";
 import { calcularZonasFC } from "../services/dominio.js";
 import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio, abrirSheet } from "./components/ui.js";
+import { botaoImportarGravl } from "./components/gravl-ui.js";
 
 const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -35,6 +36,15 @@ export async function renderAjustes(container) {
         botao("Agenda semanal", { bloco: true, onClick: () => irPara("agenda") }),
         botao("Metas", { bloco: true, onClick: () => irPara("metas") }),
       ]),
+    ])
+  );
+
+  // ---- Gravl ----
+  container.appendChild(
+    card([
+      el("p", { class: "eyebrow", text: "Musculação (Gravl)" }),
+      el("p", { class: "sub", text: "No Gravl, exporte seus treinos em CSV e escolha o arquivo aqui. Tudo é lido no aparelho: marca as sessões da agenda, conta séries por grupo e calcula o 1RM estimado. Pode reimportar o mesmo arquivo sem duplicar." }),
+      botaoImportarGravl(),
     ])
   );
 

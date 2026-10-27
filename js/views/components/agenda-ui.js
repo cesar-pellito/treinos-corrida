@@ -8,10 +8,16 @@ import {
   alternarSessao, marcarSessao, editarSessao, desmarcarSessao,
   alternarCorridaNaoFeita, registrarSessaoAvulsa,
 } from "../../services/agenda.js";
-import { hoje as hojeISO } from "../../services/dates.js";
+import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo, barraProgresso, metaItem, blocoEstrutura } from "./ui.js";
 
 const ICONE = { feito: "✓", nao_feito: "✕", pulado: "↷" };
+const NOMES_DIA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+const naDia = (d) => (d === "sábado" || d === "domingo" ? "no " : "na ") + d;
+const ddmm = (iso) => {
+  const d = deISODate(iso);
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 
 /** Executa a ação, avisa se falhar e redesenha a tela mantendo o scroll. */
 async function agir(fn) {
@@ -70,24 +76,25 @@ export function linhaEntrada(entrada, data, { resumoCorrida } = {}) {
   return linhaAvulsa(entrada);
 }
 
-function linhaSessao({ item, log, periodo }, data) {
+function linhaSessao({ item, log, periodo, remanejado }, data) {
   const atual = log ? log.status : null;
   const acao = (st) => () => agir(() => alternarSessao(item, data, st, log));
   return linha({
     periodo,
     titulo: tituloSessao(item.tipo, item.rotulo) + (item.opcional ? " (opcional)" : ""),
-    sub: detalhesLog(log),
-    status: atual,
+    sub: remanejado ? `Feito ${naDia(nomeDiaSemana(remanejado.data))} (${ddmm(remanejado.data)})` : detalhesLog(log),
+    status: atual || (remanejado ? "remanejado" : null),
     onTitulo: () => sheetSessao({ item, data, log }),
     controles: botoesStatus(atual, { feito: acao("feito"), nao_feito: acao("nao_feito"), pulado: acao("pulado") }),
   });
 }
 
-function linhaAvulsa({ log, periodo }) {
+function linhaAvulsa({ log, periodo, item, credita }) {
+  const origem = credita && item ? `Vale pelo treino de ${NOMES_DIA[item.diaSemana]}` : "Fora da agenda";
   return linha({
     periodo,
     titulo: tituloSessao(log.tipo, log.rotulo),
-    sub: "Fora da agenda · " + detalhesLog(log),
+    sub: origem + " · " + detalhesLog(log),
     status: log.status,
     onTitulo: () => sheetSessao({ log, data: log.data, avulsa: true }),
     controles: botoesStatus(log.status, { feito: () => agir(() => desmarcarSessao(log)) }),

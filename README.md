@@ -46,12 +46,12 @@ styles/app.css                design system (tema claro/escuro)
 backend/Codigo.gs             Apps Script da sincronização (você publica)
 js/
   app.js                      bootstrap: SW, tema, seed do hub, onboarding/roteamento, sync
-  data/  db.js repository.js seed.js seed-hub.js plano-alimentar.js
+  data/  db.js repository.js seed.js seed-hub.js plano-alimentar.js grupos-musculares.js
   services/  dates pace schedule stats discomfort ics backup sync theme dominio
-             agenda metas nutricao corpo
+             agenda metas nutricao corpo csv gravl
   views/  router today treinos calendar evolution history settings help
           workout-form workout-detail onboarding agenda-editor metas-editor nutricao corpo
-          components/ ui.js charts.js agenda-ui.js nutricao-ui.js corpo-ui.js
+          components/ ui.js charts.js agenda-ui.js nutricao-ui.js corpo-ui.js gravl-ui.js
   tests/ nucleo.js            asserções do núcleo (rodam em test.html)
 ```
 
@@ -71,7 +71,7 @@ IndexedDB `treinos-corrida`, **versão 2**. A migração só adiciona stores (`i
 | `sessionLogs` | check de musculação e karatê | `data`, `scheduleItemId` (null = fora da agenda), snapshot `tipo`/`rotulo`/`periodo`/`opcional`, `status` (`feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?`, `origem` (`manual`/`gravl`) |
 | `foodLogs` | refeições do plano e proteína extra | `data`, `tipo` (`refeicao`/`extra`); refeição: `refeicaoId`, `varianteIndex`, `varianteNome`, `fracao` (1, ¾, ½, ¼), snapshot `macros {kcal, prot, carb, gord}`, `escolhas?` (do montar prato); extra: `proteinaG`, `descricao?`. Uma refeição por (data, refeicaoId) — registrar de novo edita |
 | `bodyMeasurements` | pesagens (balança Fitdays) e InBody | `data`, `hora?`, `tipo` (`pesagem`/`inbody`), `pesoKg`; pesagem: `gorduraPct?`, `massaMuscularKg?`, `gorduraVisceral?`; InBody: `massaGorduraKg`, `massaLivreGorduraKg`, `massaMuscularEsqueleticaKg`, `gorduraPct` |
-| `gravlWorkouts` | treinos importados do Gravl | *(Fase 4)* |
+| `gravlWorkouts` | treinos importados do Gravl | `chave` (data + início + nome, índice único), `data`, `inicio`, `nome`, `duracaoMin`, `notas`, `series[]` (`exercicio`, `serie`, `tipoSerie`, `reps`, `pesoKg`, `esforco`…), `importadoEm`. Um registro por treino (não por série): mantém o Apps Script rápido |
 
 Metas ficam em `settings`, na chave `metas` (ver `js/services/metas.js`).
 
@@ -86,8 +86,8 @@ Barra inferior: **Hoje · Treinos · Nutrição · Corpo · Ajustes**.
 - **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida.
 - **Nutrição** (porte do App_Dieta): *Refeições* — abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia, e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
 - **Corpo:** última pesagem, média de 7 dias, ritmo semanal contra a faixa e quanto falta até o peso-alvo; gráfico de peso (30/90 dias/tudo) com pesagens, média 7d, InBody marcadas e linha do alvo; ritmo das últimas 8 semanas com a faixa-alvo sombreada; InBody com variação entre avaliações; pesagens recentes (tocar edita ou remove). Hoje mostra o resumo do peso com "+ Pesagem" (último peso já preenchido, ±0,1).
-- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
-- **Ajustes:** Agenda semanal, Metas, preferências da corrida, `.ics`, backup, sincronização e "Recomeçar o plano de corrida".
+- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas; séries de trabalho por grupo muscular contra as metas de perna e tendência de 1RM estimado, quando há dados do Gravl), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
+- **Ajustes:** Agenda semanal, Metas, importação do CSV do Gravl, preferências da corrida, `.ics`, backup, sincronização e "Recomeçar o plano de corrida".
 
 A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os itens `corrida` da agenda só indicam dia e período. O ✓ da corrida leva ao formulário de registro de sempre, e o ✕ marca "não realizado".
 
@@ -95,6 +95,7 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 - **Previstos da semana:** itens não opcionais da agenda + corridas do plano na semana.
 - **Aderência:** feitos ÷ previstos. Opcional feito e treino fora da agenda contam como *extra*. "Pulado" aparece separado e não conta como feito.
 - **Lower da semana:** sessões de musculação **feitas** com rótulo começando por "Lower", em qualquer dia (inclusive fora da agenda).
+- **Remanejamento:** um treino feito em outro dia da mesma semana (marcado como "fora da agenda" com o mesmo rótulo, ou vindo do Gravl com o rótulo no nome) vale pelo item da agenda: o item aparece como "Feito na terça" e conta na aderência, e a sessão aparece como "Vale pelo treino de quinta", sem contar como extra.
 - **Proteína do dia:** soma de `macros.prot × fração` das refeições registradas mais a proteína extra. As macros vêm da tabela de **estimativas** por refeição e variante (`MACROS` em `js/data/plano-alimentar.js`), não são valores oficiais da nutricionista, e a interface sempre mostra o selo "estimativa".
 - **Bateu a meta:** proteína do dia ≥ mínimo configurado em Metas.
 - **Média semanal de proteína:** só dos dias com algum registro; dias sem registro aparecem à parte, para que esquecer de lançar não pareça dia de proteína baixa.
@@ -104,6 +105,16 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 
 ### Plano alimentar
 O `PLANO` do App_Dieta foi copiado **sem alteração** para `js/data/plano-alimentar.js` (só ganhou `export`), com o comentário de manutenção original: quantidades literais do PDF, `quantidade: null` quando o PDF não informa, blocos que se somam e opções excludentes dentro do bloco. O `App_Dieta/` continua na pasta como referência.
+
+### Gravl (musculação)
+O hub não é um logger de musculação: o Gravl continua sendo. Em **Ajustes → Musculação (Gravl)** você escolhe o CSV exportado pelo Gravl, e tudo é lido no aparelho (`js/services/gravl.js`, parser próprio em `js/services/csv.js`). Formato esperado: uma linha por série, com as colunas `Date, Start Date, Workout, Source, Workout Duration (min), Energy, Exercise, Superset, Set, Set Type, Reps, Weight (kg), Distance (km), Set Duration (sec), Incline, Steps, Effort, Workout Notes`.
+
+- **Sem duplicar:** cada treino tem uma `chave` (data + início + nome) e é atualizado no lugar. Reimportar o mesmo arquivo dá "0 novos".
+- **Agenda:** (a) o item de musculação da mesma data, se o nome do treino cita o rótulo dele ou não cita rótulo nenhum; (b) senão, o item da semana cujo rótulo aparece no nome (remanejamento); (c) senão, sessão fora da agenda, rotulada "Lower" ou "Upper" pela maioria das séries. Uma marcação manual do mesmo dia é reaproveitada (ganha o vínculo e a duração do Gravl, mantém o RPE).
+- **Séries semanais por grupo:** contam `Normal` e `Dropset`; `Warmup` não conta.
+- **Classificação:** por palavras-chave em `js/data/grupos-musculares.js`, lidas de cima para baixo (vale a primeira que casar). Exercícios sem grupo aparecem no relatório da importação; para classificá-los, acrescente um termo na lista.
+- **1RM estimado:** Epley, `peso × (1 + reps/30)`, com a melhor série de trabalho de cada treino. Padrão: Leg Press e Barbell Bench Press; "Escolher exercícios" troca a lista.
+- **Datas:** aceita ISO (`2026-10-20`, com ou sem hora/fuso) e `dd/mm/aaaa` ou `mm/dd/aaaa` (detectado pelo arquivo; se for ambíguo, usa dia/mês e avisa). Confira o período no relatório na primeira importação.
 
 ### Corrida em 2 vezes por semana
 O plano de 22 semanas foi escrito para 3 sessões. Com 2 dias (quinta e sábado), o app segue a regra do próprio plano: nas fases 1 e 2 sai a sessão B; nas fases 3 e 4 sai a A, mantendo a de qualidade (B) e a rodagem longa (C). São 44 treinos, e a sessão mais longa fica sempre no dia mais tarde da semana. Para recomeçar da semana 1: **Ajustes → Recomeçar o plano de corrida**, escolha Qui + Sáb e a data de início. O plano anterior é arquivado, não apagado.
@@ -193,7 +204,7 @@ O `TOKEN` protege o endpoint: sem ele, o servidor recusa. Como o repositório é
 
 Abra **`test.html`** (servido por HTTP) — roda asserções em JS puro contra a camada de dados e serviços, e mostra ✓/✗. Cobre: CRUD nos seis stores; cálculo de pace com bordas (distância/tempo zero, vírgula decimal); registrar não altera o planejado além do status; alterar o plano não mexe no realizado; reagendar preserva `dataOriginal`; importar backup não duplica e respeita last-write-wins; trava de duplicação; aderência com semana parcial/vazia; recorrência de desconforto com poucos treinos; `.ics` com `SEQUENCE` e `UID` estável; virada de mês/ano.
 
-Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato.
+Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla e validação; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; sync com backend antigo mantendo os stores do hub pendentes; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato; média móvel 7d com dias faltando, 2 pesagens no dia, virada de mês e janela vazia; ritmo semanal e histórico; InBody semeadas uma vez, validação de pesagem e remoção por tombstone; parser CSV (aspas, vírgula, quebra de linha, separador); classificação por grupo com a ordem das regras; datas ISO/dd-mm/mm-dd e Epley; agrupamento por treino e séries sem aquecimento; importação do Gravl que casa com a agenda, remaneja, reaproveita a marcação manual e não duplica ao reimportar; treino que cita outro rótulo não ocupa o item do dia; backup com treino do Gravl de outro ID não aborta.
 
 > `test.html` apaga e recria o banco da origem em que roda. Rode em `localhost`, nunca na URL do GitHub Pages onde estão seus dados.
 
@@ -253,6 +264,15 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Média de 7 dias e ritmo semanal batem com as pesagens; ritmo só aparece com 2 semanas de dados.
 - [ ] A faixa 0,3–0,5 kg/semana aparece sombreada no gráfico de ritmo e muda se você mudar em Metas.
 - [ ] Tocar numa pesagem permite editar ou remover.
+
+**Hub — Fase 4 (Gravl)**
+- [ ] Importar o CSV do Gravl mostra o relatório com o período certo (confira as datas na primeira vez).
+- [ ] Reimportar o mesmo arquivo: "0 novos", e nada duplica na agenda.
+- [ ] Sessões de musculação da agenda aparecem marcadas com "Gravl"; uma marcação manual do mesmo dia não vira duas.
+- [ ] Um Lower feito fora do dia aparece como "Feito na …" no item e conta no "Lower X de 2".
+- [ ] Treinos → Semana mostra séries de quadríceps, posterior/glúteo e panturrilha contra as metas, sem o aquecimento.
+- [ ] 1RM estimado de Leg Press e Barbell Bench Press; "Escolher exercícios" troca a lista.
+- [ ] Exercícios sem grupo aparecem no relatório.
 
 **Robustez**
 - [ ] **Recarregar durante o preenchimento** de um formulário não trava o app (o botão "Atualizar" do service worker só aparece sob confirmação).

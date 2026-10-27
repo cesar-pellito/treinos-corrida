@@ -9,6 +9,7 @@ import { hoje as hojeISO, somarDias, inicioDaSemana, deISODate, nomeDiaSemana } 
 import { irPara, recarregar } from "./router.js";
 import { el, card, botao, tituloVista, segmentos, barraProgresso } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/agenda-ui.js";
+import { cardsGravl } from "./components/gravl-ui.js";
 import { renderCalendario } from "./calendar.js";
 import { renderEvolucao } from "./evolution.js";
 import { renderHistorico } from "./history.js";
@@ -64,6 +65,7 @@ async function renderSemana(container) {
   }
 
   container.appendChild(cardResumoSemana(r, { titulo: `${ddmm(r.inicio)} a ${ddmm(r.fim)}` }));
+  for (const c of await cardsGravl(semanaRef)) container.appendChild(c);
 
   for (const dia of r.dias) {
     const cab = `${nomeDiaSemana(dia.data)} · ${ddmm(dia.data)}${dia.data === hoje ? " · hoje" : ""}`;

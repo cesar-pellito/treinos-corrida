@@ -516,6 +516,41 @@ export async function removerMedida(id) {
 }
 
 // ---------------------------------------------------------------------------
+// gravlWorkouts — treinos importados do CSV do Gravl (séries dentro)
+// ---------------------------------------------------------------------------
+
+const camposGravl = (t) => JSON.stringify([t.nome, t.inicio, t.fonte, t.duracaoMin, t.energia, t.notas, t.series]);
+
+/**
+ * Upsert por `chave` (data + início + nome) numa única transação. Reimportar o
+ * mesmo arquivo não duplica: o treino existente mantém o ID e só é regravado se
+ * algo mudou. @returns {{novos, atualizados, iguais, salvos:Array}}
+ */
+export async function importarTreinosGravl(treinos) {
+  return comTransacao(STORES.gravlWorkouts, "readwrite", async (tx) => {
+    const r = { novos: 0, atualizados: 0, iguais: 0, salvos: [] };
+    const store = tx.objectStore(STORES.gravlWorkouts);
+    for (const t of treinos) {
+      const existente = await req(store.index("chave").get(t.chave));
+      if (existente && !existente.removido && camposGravl(existente) === camposGravl(t)) {
+        r.iguais++;
+        r.salvos.push(existente);
+        continue;
+      }
+      const base = existente ? { ...existente, ...t, id: existente.id, removido: false } : { ...t, id: gerarId(), removido: false };
+      const carimbado = carimbar({ ...base, importadoEm: agoraISO() }, { novo: !existente });
+      store.put(carimbado);
+      if (existente) r.atualizados++; else r.novos++;
+      r.salvos.push(carimbado);
+    }
+    return r;
+  });
+}
+export async function listarTreinosGravl() {
+  return (await listar(STORES.gravlWorkouts)).filter(ativo).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+}
+
+// ---------------------------------------------------------------------------
 // Backup / sync — TODOS_STORES vem do db.js (inclui os stores do hub)
 // ---------------------------------------------------------------------------
 
@@ -553,6 +588,12 @@ export async function importarBackup(dump) {
           continue;
         }
         const existente = await getReq(tx, store, key);
+        if (!existente && store === STORES.gravlWorkouts && rec.chave != null) {
+          // índice único por chave: o mesmo treino com outro ID (importado em
+          // outro aparelho) seria rejeitado e abortaria todo o import. Ignora.
+          const mesmoTreino = await req(tx.objectStore(store).index("chave").get(rec.chave));
+          if (mesmoTreino) { relatorio.ignorados++; continue; }
+        }
         if (!existente) {
           tx.objectStore(store).put(rec);
           relatorio.criados++;

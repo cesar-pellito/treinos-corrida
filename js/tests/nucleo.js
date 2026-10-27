@@ -15,6 +15,8 @@ import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as sync from "../services/sync.js";
 import * as nutri from "../services/nutricao.js";
 import * as corpo from "../services/corpo.js";
+import * as gravl from "../services/gravl.js";
+import { parseCSV, detectarSeparador } from "../services/csv.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -719,6 +721,167 @@ export async function rodarTestes(seed, reportar) {
     await corpo.removerMedida(p);
     eq((await corpo.carregarCorpo("2026-11-02")).ultima, null, "removida sai das telas");
     eq((await repo.contarTudo()).bodyMeasurements, 4, "continua no banco (tombstone)");
+  });
+
+  // -------------------------------------------------------------------------
+  // Gravl
+  // -------------------------------------------------------------------------
+  // CSV sintético no formato do export (uma linha por série). Semana 02–08/11/2026.
+  const CAB = "Date,Start Date,Workout,Source,Workout Duration (min),Energy,Exercise,Superset,Set,Set Type,Reps,Weight (kg),Distance (km),Set Duration (sec),Incline,Steps,Effort,Workout Notes";
+  const NOTA = '"Bom treino, joelho ok\ncom quebra de linha e ""aspas"""';
+  const linha = (data, ini, treino, dur, ex, n, tipo, reps, peso, nota = "") =>
+    [data, `${data} ${ini}`, treino, "Gravl", dur, "", ex, "", n, tipo, reps, peso, "", "", "", "", "", nota].join(",");
+  const serie = (data, ini, treino, dur, ex, specs, nota) =>
+    specs.map(([tipo, reps, peso], i) => linha(data, ini, treino, dur, ex, i + 1, tipo, reps, peso, nota));
+  const CSV_GRAVL = [CAB,
+    // Upper A — segunda 02/11 (dia do Upper A na agenda)
+    ...serie("2026-11-02", "07:01:00", "Upper A", 55, "Barbell Bench Press", [["Warmup", 12, 40], ["Normal", 8, 70], ["Normal", 8, 72.5], ["Normal", 6, 75]]),
+    ...serie("2026-11-02", "07:01:00", "Upper A", 55, "Seated Cable Row", [["Normal", 10, 60], ["Normal", 10, 60], ["Normal", 10, 65]]),
+    // Lower A — quinta 05/11 (dia do Lower A), com notas com vírgula/quebra de linha
+    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Leg Press", [["Warmup", 12, 80], ["Normal", 10, 140], ["Normal", 8, 150], ["Normal", 6, 160]], NOTA),
+    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Romanian Deadlift", [["Normal", 10, 60], ["Normal", 10, 60], ["Normal", 8, 65]], NOTA),
+    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Seated Calf Raise", [["Normal", 15, 40], ["Normal", 15, 40], ["Normal", 12, 45]], NOTA),
+    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Calf Press on Leg Press", [["Normal", 15, 100]], NOTA),
+    // Lower B — sábado 07/11 (o item é domingo): remanejamento
+    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Barbell Back Squat", [["Normal", 8, 80], ["Normal", 8, 80], ["Normal", 6, 85], ["Dropset", 10, 60]]),
+    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Hip Thrust", [["Normal", 10, 100], ["Normal", 10, 100], ["Normal", 10, 100]]),
+    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Lying Leg Curl", [["Normal", 12, 35], ["Normal", 12, 35]]),
+    // Full Body — sexta 06/11 (sem musculação na agenda; maioria de braço => "Upper")
+    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Dumbbell Curl", [["Normal", 12, 12], ["Normal", 12, 12], ["Normal", 10, 14]]),
+    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Triceps Pushdown", [["Normal", 12, 25], ["Normal", 12, 25], ["Normal", 12, 25]]),
+    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Goblet Squat", [["Normal", 12, 20]]),
+  ].join("\r\n");
+
+  await test("csv: aspas, vírgula, quebra de linha e aspas duplicadas; separador ; detectado", () => {
+    const m = parseCSV('a,b,c\r\n1,"x, y","linha1\nlinha2 ""citado"""\r\n\r\n2,,z');
+    eq(m.length, 3, "linha vazia descartada");
+    eq(m[1][1], "x, y");
+    eq(m[1][2], 'linha1\nlinha2 "citado"');
+    eq(m[2][1], "");
+    eq(detectarSeparador("Date;Workout;Exercise\n1;2;3"), ";");
+    eq(parseCSV("a;b\n1,5;2", ";")[1][0], "1,5");
+  });
+
+  await test("gravl: classificação por grupo (ordem das regras importa)", () => {
+    const casos = {
+      "Leg Press": "quadriceps", "Calf Press on Leg Press": "panturrilha", "Seated Calf Raise": "panturrilha",
+      "Romanian Deadlift": "posteriorGluteo", "Hip Thrust": "posteriorGluteo", "Lying Leg Curl": "posteriorGluteo",
+      "Glute Kickback (Cable)": "posteriorGluteo", "Leg Extension": "quadriceps", "Bulgarian Split Squat": "quadriceps",
+      "Barbell Back Squat": "quadriceps", "Walking Lunges": "quadriceps", "Barbell Bench Press": "peito",
+      "Seated Cable Row": "costas", "Lat Pulldown": "costas", "Upright Row": "ombros", "Lateral Raise": "ombros",
+      "Dumbbell Curl": "biceps", "Triceps Pushdown": "triceps", "Triceps Kickback": "triceps", "Plank": "core",
+      "Narrow Stance Something": "outro", "Abdução de quadril": "posteriorGluteo",
+    };
+    for (const [nome, grupo] of Object.entries(casos)) eq(gravl.classificarExercicio(nome), grupo, nome);
+  });
+
+  await test("gravl: datas ISO, com fuso, dd/mm e mm/dd; Epley", () => {
+    eq(gravl.lerData("2026-11-05"), "2026-11-05");
+    eq(gravl.lerData("2026-11-05 19:02:11"), "2026-11-05");
+    eq(gravl.lerData("05/11/2026", "dm"), "2026-11-05");
+    eq(gravl.lerData("11/05/2026", "md"), "2026-11-05");
+    eq(gravl.detectarOrdemData(["05/11/2026", "25/11/2026"]), "dm");
+    eq(gravl.detectarOrdemData(["11/05/2026", "11/25/2026"]), "md");
+    eq(gravl.detectarOrdemData(["05/11/2026"]), null, "ambíguo");
+    eq(gravl.epley(100, 1), 100);
+    eq(gravl.epley(160, 6), 192);
+    eq(gravl.epley(0, 5), null);
+    eq(gravl.numero("72,5"), 72.5); eq(gravl.numero("72.5"), 72.5); eq(gravl.numero(""), null);
+  });
+
+  await test("gravl: interpretar agrupa por treino; séries semanais ignoram aquecimento", () => {
+    const { treinos, avisos } = gravl.interpretarCSV(CSV_GRAVL);
+    eq(treinos.length, 4, "4 treinos");
+    eq(avisos.length, 0);
+    const lowerA = treinos.find((t) => t.nome === "Lower A");
+    eq(lowerA.series.length, 11);
+    eq(lowerA.notas, 'Bom treino, joelho ok\ncom quebra de linha e "aspas"', "notas com vírgula e quebra de linha");
+    eq(lowerA.duracaoMin, 62);
+    const { porGrupo, semGrupo } = gravl.seriesPorGrupo(treinos, "2026-11-02", "2026-11-08");
+    eq(porGrupo.quadriceps, 8, "Leg Press 3 + Squat 3 + Dropset 1 + Goblet 1 (aquecimento fora)");
+    eq(porGrupo.posteriorGluteo, 8, "RDL 3 + Hip Thrust 3 + Leg Curl 2");
+    eq(porGrupo.panturrilha, 4);
+    eq(porGrupo.peito, 3, "supino sem o aquecimento");
+    eq(semGrupo.length, 0);
+    assert(gravl.ehTreinoDePerna(lowerA), "Lower A é de perna");
+    assert(!gravl.ehTreinoDePerna(treinos.find((t) => t.nome === "Full Body")), "Full Body é de braço");
+    const t = gravl.tendencia1RM(treinos, "leg press");
+    eq(t.length, 1); eq(t[0].e1rm, 192, "melhor série: 160 × 6");
+  });
+
+  await test("gravl: importar casa com a agenda, remaneja e reimportar não duplica", async () => {
+    await reset();
+    await seedMod.semearHub();
+    // marcação manual ANTES da importação: deve ser ligada, não duplicada
+    const agendaHub = await repo.listarAgenda();
+    const lowerA = agendaHub.find((i) => i.rotulo === "Lower A");
+    await agenda.marcarSessao(lowerA, "2026-11-05", "feito", { rpe: 8 });
+
+    const r1 = await gravl.importarCSV(CSV_GRAVL);
+    eq(r1.novos, 4); eq(r1.atualizados, 0); eq(r1.iguais, 0);
+    eq(r1.sessoes.data, 2, "Upper A (seg) e Lower A (qui) no próprio dia");
+    eq(r1.sessoes.semana, 1, "Lower B no sábado vale pelo domingo");
+    eq(r1.sessoes.avulsa, 1, "Full Body fora da agenda");
+    eq(r1.de, "2026-11-02"); eq(r1.ate, "2026-11-07");
+    const cont1 = await repo.contarTudo();
+    eq(cont1.gravlWorkouts, 4);
+    eq(cont1.sessionLogs, 4, "a marcação manual do Lower A foi reaproveitada");
+    const qui = (await repo.listarSessoes({ de: "2026-11-05", ate: "2026-11-05" }))[0];
+    eq(qui.origem, "gravl"); eq(qui.rpe, 8, "mantém o RPE manual"); eq(qui.duracaoMin, 62, "duração do Gravl");
+
+    const r2 = await gravl.importarCSV(CSV_GRAVL);
+    eq(r2.novos, 0); eq(r2.iguais, 4, "mesmo arquivo: tudo igual");
+    eq(r2.sessoes.ja_ligado, 4);
+    const cont2 = await repo.contarTudo();
+    eq(cont2.gravlWorkouts, 4, "sem treinos duplicados");
+    eq(cont2.sessionLogs, 4, "sem sessões duplicadas");
+
+    const s = agenda.resumirSemana({
+      agenda: await repo.listarAgenda(), sessoes: await repo.listarSessoes({ de: "2026-11-02", ate: "2026-11-08" }),
+      corridas: [], inicio: "2026-11-02", metas: METAS_PADRAO,
+    });
+    eq(s.lower, 2, "Lower A + Lower B (remanejado)");
+    eq(s.extras, 1, "só o Full Body é extra");
+    const dom = s.dias.find((d) => d.data === "2026-11-08").entradas.find((e) => e.tipo === "sessao");
+    eq(dom.remanejado && dom.remanejado.data, "2026-11-07", "domingo aparece como feito no sábado");
+    eq(s.feitos, 3, "Upper A, Lower A e Lower B (sem corridas nem karatê)");
+  });
+
+  await test("gravl: treino que cita outro rótulo não ocupa o item do dia; nome genérico ocupa", async () => {
+    await reset();
+    await seedMod.semearHub();
+    const csv = [CAB,
+      ...serie("2026-11-02", "07:00:00", "Lower A", 50, "Leg Press", [["Normal", 10, 140]]),      // segunda é Upper A
+      ...serie("2026-11-04", "07:00:00", "Treino da manhã", 45, "Bench Press", [["Normal", 8, 70]]), // quarta é Upper B
+    ].join("\n");
+    const r = await gravl.importarCSV(csv);
+    eq(r.sessoes.semana, 1, "Lower A vai para o Lower A de quinta");
+    eq(r.sessoes.data, 1, "nome genérico ocupa o Upper B do dia");
+    const ag = await repo.listarAgenda();
+    const seg = await repo.listarSessoes({ de: "2026-11-02", ate: "2026-11-02" });
+    eq(seg[0].scheduleItemId, ag.find((i) => i.rotulo === "Lower A").id, "não marcou o Upper A");
+    eq(seg[0].rotulo, "Lower A");
+  });
+
+  await test("agenda: treino fora da agenda com o mesmo rótulo é remanejado para o item da semana", async () => {
+    await reset();
+    await seedMod.semearHub();
+    const log = await agenda.registrarSessaoAvulsa({ data: "2026-11-07", tipo: "musculacao", rotulo: "Lower B", periodo: "manha" });
+    const lowerB = (await repo.listarAgenda()).find((i) => i.rotulo === "Lower B");
+    eq(log.scheduleItemId, lowerB.id, "ligado ao Lower B de domingo");
+    const outro = await agenda.registrarSessaoAvulsa({ data: "2026-11-07", tipo: "musculacao", rotulo: "Treino livre", periodo: "noite" });
+    eq(outro.scheduleItemId, null, "rótulo sem item correspondente fica fora da agenda");
+  });
+
+  await test("backup: treino do Gravl com a mesma chave e outro ID não aborta o import", async () => {
+    await reset();
+    const { treinos } = gravl.interpretarCSV(CSV_GRAVL);
+    await repo.importarTreinosGravl(treinos);
+    const dump = await repo.exportarTudo();
+    const alheio = { ...dump.stores.gravlWorkouts[0], id: "outro-id", atualizadoEm: "2030-01-01T00:00:00.000Z" };
+    const r = await repo.importarBackup({ stores: { gravlWorkouts: [alheio], settings: [{ chave: "z", valor: 1, atualizadoEm: "2026-01-01T00:00:00.000Z" }] } });
+    eq(r.ignorados, 1); eq(r.criados, 1, "o resto do backup entra");
+    eq((await repo.contarTudo()).gravlWorkouts, 4);
   });
 
   await reset();

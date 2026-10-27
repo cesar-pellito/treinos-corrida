@@ -48,10 +48,24 @@ export function snapshotItem(item) {
 }
 
 /**
- * Monta as entradas de um dia (puro). Tipos de entrada:
- *   {tipo:'sessao', item, log}       item da agenda (musculação/karatê) + registro do dia
- *   {tipo:'corrida', planned, periodo}  treino do plano de corrida naquela data
- *   {tipo:'avulsa', log}             sessão fora da agenda
+ * Log feito em OUTRO dia da semana que vale por este item ("remanejado"): o
+ * item não tem registro próprio no seu dia, e existe uma sessão feita, com o
+ * scheduleItemId dele, em outra data. `sessoes` deve cobrir só a semana.
+ */
+function remanejamentoDe(item, sessoes) {
+  const proprio = sessoes.some((s) => s.scheduleItemId === item.id && diaDaSemana(s.data) === item.diaSemana);
+  if (proprio) return null;
+  return sessoes.find((s) => s.scheduleItemId === item.id && s.status === "feito" && diaDaSemana(s.data) !== item.diaSemana) || null;
+}
+
+/**
+ * Monta as entradas de um dia (puro). `sessoes` = as da SEMANA (para enxergar
+ * remanejamentos). Tipos de entrada:
+ *   {tipo:'sessao', item, log, remanejado}  item da agenda (musculação/karatê) + registro
+ *                                           do dia; `remanejado` = log feito em outro dia
+ *   {tipo:'corrida', planned, periodo}      treino do plano de corrida naquela data
+ *   {tipo:'avulsa', log, item?, credita}    sessão fora da agenda; `credita` = vale pelo
+ *                                           `item` de outro dia (não conta como extra)
  */
 export function montarDia({ agenda, sessoes, corridas, data }) {
   const dow = diaDaSemana(data);
@@ -59,11 +73,13 @@ export function montarDia({ agenda, sessoes, corridas, data }) {
   const doDia = sessoes.filter((s) => s.data === data);
   const porItem = new Map(doDia.filter((s) => s.scheduleItemId).map((s) => [s.scheduleItemId, s]));
   const periodoCorrida = (itens.find((i) => i.tipo === "corrida") || {}).periodo || "manha";
+  const agendaPorId = new Map(agenda.map((i) => [i.id, i]));
 
   const entradas = [];
   for (const item of itens) {
     if (item.tipo === "corrida") continue;
-    entradas.push({ tipo: "sessao", periodo: item.periodo, item, log: porItem.get(item.id) || null });
+    const log = porItem.get(item.id) || null;
+    entradas.push({ tipo: "sessao", periodo: item.periodo, item, log, remanejado: log ? null : remanejamentoDe(item, sessoes) });
   }
   for (const w of corridas.filter((c) => c.dataPlanejada === data)) {
     entradas.push({ tipo: "corrida", periodo: periodoCorrida, planned: w });
@@ -71,7 +87,9 @@ export function montarDia({ agenda, sessoes, corridas, data }) {
   const idsDoDia = new Set(itens.map((i) => i.id));
   for (const s of doDia) {
     if (!s.scheduleItemId || !idsDoDia.has(s.scheduleItemId)) {
-      entradas.push({ tipo: "avulsa", periodo: s.periodo || "manha", log: s });
+      const item = s.scheduleItemId ? agendaPorId.get(s.scheduleItemId) || null : null;
+      const credita = !!(item && s.status === "feito" && remanejamentoDe(item, sessoes) === s);
+      entradas.push({ tipo: "avulsa", periodo: s.periodo || "manha", log: s, item, credita });
     }
   }
   // estável: manhã antes da noite, mantendo a ordem de inserção dentro do período
@@ -94,7 +112,7 @@ export function resumirSemana({ agenda, sessoes, corridas, inicio, metas }) {
     r.dias.push({ data, entradas });
     for (const e of entradas) {
       if (e.tipo === "sessao") {
-        const st = e.log && e.log.status;
+        const st = e.log ? e.log.status : e.remanejado ? "feito" : null;
         if (e.item.opcional) {
           if (st === "feito") r.extras++;
         } else {
@@ -107,8 +125,8 @@ export function resumirSemana({ agenda, sessoes, corridas, inicio, metas }) {
         r.previstos++;
         if (e.planned.status === "concluido") r.feitos++;
         else if (e.planned.status === "nao_realizado") r.naoFeitos++;
-      } else if (e.tipo === "avulsa" && e.log.status === "feito") {
-        r.extras++;
+      } else if (e.tipo === "avulsa" && e.log.status === "feito" && !e.credita) {
+        r.extras++; // a que credita um item já contou como "feito" no dia do item
       }
       const log = e.log;
       if (log && log.status === "feito" && log.tipo === "musculacao" && ehLower(log.rotulo)) r.lower++;
@@ -141,10 +159,29 @@ export async function carregarSemana(dataRef = hojeISO()) {
   return resumirSemana({ ...base, inicio });
 }
 
-/** Entradas de um dia. */
+/** Entradas de um dia (lê a semana inteira para enxergar remanejamentos). */
 export async function carregarDia(data = hojeISO()) {
-  const base = await carregarBase(data, data);
+  const inicio = inicioDaSemana(data, await primeiroDiaSemana());
+  const base = await carregarBase(inicio, somarDias(inicio, 6));
   return montarDia({ ...base, data });
+}
+
+const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Item da agenda que uma sessão feita em `data` (fora do dia previsto) pode
+ * cumprir, na mesma semana (puro). Critério: mesmo tipo, não opcional, rótulo
+ * igual a `rotulo` OU contido em `nomeLivre` (ex.: nome do treino no Gravl), e
+ * o item ainda sem registro no próprio dia nem outro remanejamento.
+ */
+export function itemParaRemanejar({ agenda, sessoesSemana, tipo, rotulo, nomeLivre, data }) {
+  const r = norm(rotulo), n = norm(nomeLivre);
+  const candidatos = agenda.filter((i) => {
+    if (i.tipo !== tipo || i.opcional || !i.rotulo || i.diaSemana === diaDaSemana(data)) return false;
+    const ir = norm(i.rotulo);
+    return (r && ir === r) || (n && n.includes(ir));
+  });
+  return candidatos.find((i) => !sessoesSemana.some((s) => s.scheduleItemId === i.id)) || null;
 }
 
 /** Agenda ordenada pela semana do usuário (para o editor). */
@@ -174,10 +211,27 @@ export function alternarSessao(item, data, status, logAtual) {
   return marcarSessao(item, data, status);
 }
 
-/** Sessão fora da agenda (ex.: Lower num dia diferente). Sempre "feito". */
-export function registrarSessaoAvulsa({ data, tipo, rotulo, periodo, duracaoMin = null, rpe = null }) {
+/** Agenda e sessões da semana de `data` (para remanejamento). */
+export async function carregarSemanaCrua(data) {
+  const inicio = inicioDaSemana(data, await primeiroDiaSemana());
+  const [agenda, sessoesSemana] = await Promise.all([
+    repo.listarAgenda(),
+    repo.listarSessoes({ de: inicio, ate: somarDias(inicio, 6) }),
+  ]);
+  return { agenda, sessoesSemana };
+}
+
+/**
+ * Sessão fora do dia previsto (ex.: Lower A no sábado). Sempre "feito". Se um
+ * item da agenda da mesma semana, com o mesmo tipo e rótulo, ainda não foi
+ * feito, a sessão é vinculada a ele (remanejamento): conta na aderência no
+ * lugar do item. Senão, fica como extra.
+ */
+export async function registrarSessaoAvulsa({ data, tipo, rotulo, periodo, duracaoMin = null, rpe = null }) {
+  const { agenda, sessoesSemana } = await carregarSemanaCrua(data);
+  const item = itemParaRemanejar({ agenda, sessoesSemana, tipo, rotulo, data });
   return repo.registrarSessao({
-    data, scheduleItemId: null, tipo, rotulo, periodo, opcional: false, status: "feito", duracaoMin, rpe,
+    data, scheduleItemId: item ? item.id : null, tipo, rotulo, periodo, opcional: false, status: "feito", duracaoMin, rpe,
   });
 }
 

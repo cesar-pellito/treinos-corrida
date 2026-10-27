@@ -520,3 +520,7 @@ button.mini { width: 100%; font: inherit; color: inherit; text-align: left; curs
 .legenda .leg-alvo { background: none; border-top: 2px dashed var(--ok); width: 16px; height: 0; border-radius: 0; }
 .par-acoes { grid-template-columns: 1fr 1fr; }
 .par-acoes .btn { justify-content: center; }
+.agenda-linha--remanejado { border-color: var(--ok); border-style: dashed; }
+.agenda-linha--remanejado .agenda-linha__sub { color: var(--ok-ink); }
+.serie-grupo { display: grid; gap: 6px; }
+.ok-txt { color: var(--ok); }
