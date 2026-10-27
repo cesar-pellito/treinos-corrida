@@ -155,28 +155,6 @@ export function abrirSheet(titulo, conteudo) {
   return fechar;
 }
 
-/** Campo numérico com − e + (ex.: peso em passos de 0,1). */
-export function stepper(input, { passo = 0.1, casas = 1 } = {}) {
-  const mudar = (d) => {
-    const atual = Number(String(input.value).replace(",", ".")) || 0;
-    input.value = (Math.round((atual + d) * 10 ** casas) / 10 ** casas).toFixed(casas);
-    input.dispatchEvent(new Event("input"));
-  };
-  return el("div", { class: "stepper" }, [
-    el("button", { type: "button", class: "btn stepper__btn", "aria-label": `Diminuir ${passo}`, text: "−", onClick: () => mudar(-passo) }),
-    input,
-    el("button", { type: "button", class: "btn stepper__btn", "aria-label": `Aumentar ${passo}`, text: "+", onClick: () => mudar(passo) }),
-  ]);
-}
-
-/** Lê um número de um input aceitando vírgula; vazio => null. */
-export function lerNumero(input) {
-  const s = String(input.value).trim().replace(",", ".");
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : NaN;
-}
-
 /** Segmented control (seletor de período/visão). opcoes: [{valor,rotulo}]. */
 export function segmentos(opcoes, { valorInicial, onChange } = {}) {
   let valor = valorInicial ?? opcoes[0].valor;

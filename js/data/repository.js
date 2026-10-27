@@ -10,8 +10,8 @@
 //   - proibido dois completedWorkouts para o mesmo plannedWorkoutId
 //   - import/merge por ID com last-write-wins por atualizadoEm, sem duplicar
 //
-// Campos de sync: toda escrita local carimba atualizadoEm e _pendingSync=true.
-// A sincronização com Google Sheets (Etapa 7) limpa _pendingSync via marcarSincronizados.
+// Toda escrita local carimba atualizadoEm: é o que o import de backup usa para
+// decidir quem vence (last-write-wins).
 
 import { STORES, TODOS_STORES, comTransacao, req, abrirDB } from "./db.js";
 import { agoraISO } from "../services/dates.js";
@@ -31,13 +31,12 @@ function chaveDe(store) {
   return store === STORES.settings ? "chave" : "id";
 }
 
-/** Carimba criadoEm (se novo), atualizadoEm e _pendingSync numa escrita local. */
+/** Carimba criadoEm (se novo) e atualizadoEm numa escrita local. */
 function carimbar(registro, { novo }) {
   const agora = agoraISO();
   const r = { ...registro };
   if (novo && !r.criadoEm) r.criadoEm = agora;
   r.atualizadoEm = agora;
-  r._pendingSync = true;
   return r;
 }
 
@@ -88,7 +87,7 @@ export async function planoAtivo() {
 
 /**
  * "Recomeçar o plano": arquiva o plano ativo (ativo=false). NADA é apagado —
- * planejados, realizados e desconfortos ficam no banco (e no Sheets), só deixam
+ * planejados, realizados e desconfortos ficam no banco (e no backup), só deixam
  * de aparecer porque as telas filtram pelo plano ativo. Sem plano ativo, o boot
  * volta ao onboarding e um plano novo é semeado.
  */
@@ -316,9 +315,9 @@ export async function obterConfigs() {
 // ---------------------------------------------------------------------------
 // Hub (v2) — utilidades comuns aos stores novos
 //
-// Exclusão é LÓGICA (tombstone): `removido: true` + atualizadoEm novo. O sync e o
-// backup são merge last-write-wins sem DELETE; um registro apagado de verdade
-// voltaria do Sheets na próxima sincronização. As listagens filtram removidos.
+// Exclusão é LÓGICA (tombstone): `removido: true` + atualizadoEm novo. O import
+// de backup é merge last-write-wins sem DELETE; um registro apagado de verdade
+// voltaria ao importar um backup antigo. As listagens filtram removidos.
 // ---------------------------------------------------------------------------
 const ativo = (r) => r && !r.removido;
 
@@ -341,7 +340,7 @@ async function removerLogico(store, id) {
 /**
  * Seed idempotente: insere só os registros cujo `id` ainda não existe. Nunca
  * sobrescreve — um item que você editou ou removeu (tombstone) continua como está.
- * Os seeds usam UUIDs fixos, então reinstalar ou sincronizar outro aparelho
+ * Os seeds usam UUIDs fixos, então reinstalar ou restaurar um backup
  * não duplica nada.
  */
 export async function semearRegistros(store, registros) {
@@ -404,8 +403,8 @@ export async function registrarSessao(dados) {
     const base = existente
       ? { ...existente }
       : {
-          id: gerarId(), scheduleItemId: itemId, origem: "manual",
-          duracaoMin: null, rpe: null, gravlWorkoutId: null, observacoes: null,
+          id: gerarId(), scheduleItemId: itemId,
+          duracaoMin: null, rpe: null, observacoes: null,
         };
     for (const [k, v] of Object.entries(dados)) {
       if (v !== undefined && k !== "id" && k !== "criadoEm") base[k] = v;
@@ -492,66 +491,7 @@ export async function removerRegistroAlimentar(id) {
 }
 
 // ---------------------------------------------------------------------------
-// bodyMeasurements — pesagens (balança) e InBody
-// ---------------------------------------------------------------------------
-export const TIPOS_MEDIDA = ["pesagem", "inbody"];
-
-/** Cria ou edita uma medida. Peso em kg; percentuais em %. */
-export async function salvarMedida(m) {
-  if (!TIPOS_MEDIDA.includes(m.tipo)) throw new Error(`Tipo de medida inválido: ${m.tipo}`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(m.data || "")) throw new Error("Data inválida.");
-  if (!(typeof m.pesoKg === "number" && m.pesoKg > 20 && m.pesoKg < 400)) throw new Error("Peso inválido.");
-  const r = { hora: null, removido: false, ...m, id: m.id || gerarId() };
-  return put(STORES.bodyMeasurements, r, { novo: !m.criadoEm });
-}
-/** Medidas ativas, por data (e hora) crescente. */
-export async function listarMedidas({ tipo } = {}) {
-  const todas = (await listar(STORES.bodyMeasurements)).filter(ativo);
-  const r = tipo ? todas.filter((m) => m.tipo === tipo) : todas;
-  const k = (m) => `${m.data}T${m.hora || "00:00"}`;
-  return r.sort((a, b) => (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0));
-}
-export async function removerMedida(id) {
-  return removerLogico(STORES.bodyMeasurements, id);
-}
-
-// ---------------------------------------------------------------------------
-// gravlWorkouts — treinos importados do CSV do Gravl (séries dentro)
-// ---------------------------------------------------------------------------
-
-const camposGravl = (t) => JSON.stringify([t.nome, t.inicio, t.fonte, t.duracaoMin, t.energia, t.notas, t.series]);
-
-/**
- * Upsert por `chave` (data + início + nome) numa única transação. Reimportar o
- * mesmo arquivo não duplica: o treino existente mantém o ID e só é regravado se
- * algo mudou. @returns {{novos, atualizados, iguais, salvos:Array}}
- */
-export async function importarTreinosGravl(treinos) {
-  return comTransacao(STORES.gravlWorkouts, "readwrite", async (tx) => {
-    const r = { novos: 0, atualizados: 0, iguais: 0, salvos: [] };
-    const store = tx.objectStore(STORES.gravlWorkouts);
-    for (const t of treinos) {
-      const existente = await req(store.index("chave").get(t.chave));
-      if (existente && !existente.removido && camposGravl(existente) === camposGravl(t)) {
-        r.iguais++;
-        r.salvos.push(existente);
-        continue;
-      }
-      const base = existente ? { ...existente, ...t, id: existente.id, removido: false } : { ...t, id: gerarId(), removido: false };
-      const carimbado = carimbar({ ...base, importadoEm: agoraISO() }, { novo: !existente });
-      store.put(carimbado);
-      if (existente) r.atualizados++; else r.novos++;
-      r.salvos.push(carimbado);
-    }
-    return r;
-  });
-}
-export async function listarTreinosGravl() {
-  return (await listar(STORES.gravlWorkouts)).filter(ativo).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
-}
-
-// ---------------------------------------------------------------------------
-// Backup / sync — TODOS_STORES vem do db.js (inclui os stores do hub)
+// Backup — TODOS_STORES vem do db.js (inclui os stores do hub)
 // ---------------------------------------------------------------------------
 
 /** Dump completo de todos os stores, para exportação JSON. */
@@ -588,12 +528,6 @@ export async function importarBackup(dump) {
           continue;
         }
         const existente = await getReq(tx, store, key);
-        if (!existente && store === STORES.gravlWorkouts && rec.chave != null) {
-          // índice único por chave: o mesmo treino com outro ID (importado em
-          // outro aparelho) seria rejeitado e abortaria todo o import. Ignora.
-          const mesmoTreino = await req(tx.objectStore(store).index("chave").get(rec.chave));
-          if (mesmoTreino) { relatorio.ignorados++; continue; }
-        }
         if (!existente) {
           tx.objectStore(store).put(rec);
           relatorio.criados++;
@@ -611,35 +545,6 @@ export async function importarBackup(dump) {
     }
   });
   return relatorio;
-}
-
-/** Lista registros pendentes de sync (para enviar ao Google Sheets). */
-export async function listarPendentesSync() {
-  const pendentes = {};
-  await comTransacao(TODOS_STORES, "readonly", async (tx) => {
-    for (const s of TODOS_STORES) {
-      const todos = await getAllReq(tx, s);
-      pendentes[s] = todos.filter((r) => r._pendingSync);
-    }
-  });
-  return pendentes;
-}
-
-/** Marca como sincronizados (limpa _pendingSync) os registros informados. */
-export async function marcarSincronizados(porStore) {
-  await comTransacao(TODOS_STORES, "readwrite", async (tx) => {
-    for (const [store, itens] of Object.entries(porStore)) {
-      if (!Array.isArray(itens)) continue;
-      const chave = chaveDe(store);
-      for (const it of itens) {
-        const atual = await getReq(tx, store, it[chave]);
-        if (atual && atual._pendingSync) {
-          atual._pendingSync = false;
-          tx.objectStore(store).put(atual);
-        }
-      }
-    }
-  });
 }
 
 /** Contagem por store — utilitário para testes e diagnósticos. */

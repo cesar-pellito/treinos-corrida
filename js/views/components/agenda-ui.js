@@ -49,7 +49,6 @@ function detalhesLog(log) {
   const partes = [ROTULO_STATUS[log.status]];
   if (log.duracaoMin) partes.push(`${log.duracaoMin} min`);
   if (log.rpe) partes.push(`RPE ${log.rpe}`);
-  if (log.origem === "gravl") partes.push("Gravl");
   return partes.join(" · ");
 }
 

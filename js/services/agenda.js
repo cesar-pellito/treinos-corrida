@@ -171,15 +171,14 @@ const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toL
 /**
  * Item da agenda que uma sessão feita em `data` (fora do dia previsto) pode
  * cumprir, na mesma semana (puro). Critério: mesmo tipo, não opcional, rótulo
- * igual a `rotulo` OU contido em `nomeLivre` (ex.: nome do treino no Gravl), e
- * o item ainda sem registro no próprio dia nem outro remanejamento.
+ * igual a `rotulo`, e o item ainda sem registro no próprio dia nem outro
+ * remanejamento.
  */
-export function itemParaRemanejar({ agenda, sessoesSemana, tipo, rotulo, nomeLivre, data }) {
-  const r = norm(rotulo), n = norm(nomeLivre);
+export function itemParaRemanejar({ agenda, sessoesSemana, tipo, rotulo, data }) {
+  const r = norm(rotulo);
   const candidatos = agenda.filter((i) => {
     if (i.tipo !== tipo || i.opcional || !i.rotulo || i.diaSemana === diaDaSemana(data)) return false;
-    const ir = norm(i.rotulo);
-    return (r && ir === r) || (n && n.includes(ir));
+    return r && norm(i.rotulo) === r;
   });
   return candidatos.find((i) => !sessoesSemana.some((s) => s.scheduleItemId === i.id)) || null;
 }

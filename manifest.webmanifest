@@ -1,7 +1,7 @@
 {
   "name": "PaceUp",
   "short_name": "PaceUp",
-  "description": "Hub pessoal de treinos, nutrição e corpo — offline, local-first.",
+  "description": "Hub pessoal de treinos e nutrição — offline, local-first.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

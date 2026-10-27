@@ -19,10 +19,6 @@ export async function renderAjuda(container) {
         el("p", { class: "aviso", text: "O Google Agenda ignora o horário de alarme definido no arquivo e usa a notificação padrão da sua conta. O alarme de “20:00 do dia anterior” só é respeitado pelo Apple Calendar." }),
         el("p", { text: "Os eventos têm um horário real (manhã, por padrão) para que a notificação padrão do Google tenha a que se ancorar. Você pode mover o horário no próprio calendário." }),
 
-        el("h3", { text: "Lembrete por e-mail na véspera (recomendado para Google)" }),
-        el("p", { text: "Para receber um lembrete confiável às 20:00 do dia anterior, use o envio por e-mail do mesmo Apps Script da sincronização. Um gatilho diário verifica se há treino amanhã e manda o resumo por e-mail — com o app fechado, sem custo, no horário exato que você escolher. Em dia de descanso, não envia nada." }),
-        el("p", { class: "sub", text: "Como ligar: sincronize ao menos uma vez, abra o Apps Script e execute a função “instalarGatilhoLembrete” uma vez (autorize o envio de e-mail). O passo a passo está no arquivo backend/Codigo.gs." }),
-
         el("h3", { text: "Quando você reagendar um treino" }),
         el("p", { text: "Reexporte o .ics. Em vez de reimportar por cima (o Google pode duplicar), o caminho seguro é usar um calendário dedicado só para o plano: apague-o e importe o arquivo novo inteiro. Assim nunca duplica." }),
 
@@ -30,7 +26,7 @@ export async function renderAjuda(container) {
         el("p", { text: "Quando você abrir o app e houver um treino de hoje ainda não registrado, ele aparece em destaque na tela Hoje. Esse é o lembrete dentro do app." }),
 
         el("h3", { text: "Seus dados" }),
-        el("p", { text: "Tudo fica salvo no seu celular. Para não perder nada: instale o app na tela inicial (protege os dados no iOS) e faça backup com alguma frequência (exportar JSON ou sincronizar com o Google Sheets). O app avisa quando o último backup passa de 14 dias." }),
+        el("p", { text: "Tudo fica salvo só no seu celular — o app não tem servidor. Para não perder nada: instale o app na tela inicial (protege os dados no iOS) e exporte o backup JSON com alguma frequência, salvando no Google Drive ou no app Arquivos pelo menu de compartilhar. O app avisa quando o último backup passa de 14 dias." }),
       ]),
     ])
   );

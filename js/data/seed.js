@@ -8,20 +8,19 @@
 
 import * as repo from "./repository.js";
 import { STORES } from "./db.js";
-import { AGENDA_PADRAO, INBODY_INICIAIS } from "./seed-hub.js";
+import { AGENDA_PADRAO } from "./seed-hub.js";
 import { inicioDaSemana, somarDias } from "../services/dates.js";
 
 const CAMINHO_SEED = new URL("../../data/plano-seed.json", import.meta.url);
 
 /**
- * Seed do hub: agenda-padrão e as InBody iniciais. Roda em todo
+ * Seed do hub: agenda-padrão. Roda em todo
  * boot e é barato: só insere o que ainda não existe por ID (ver seed-hub.js).
- * @returns {{agenda:number, inbody:number}} quantos registros foram inseridos agora
+ * @returns {{agenda:number}} quantos registros foram inseridos agora
  */
 export async function semearHub() {
   const agenda = await repo.semearRegistros(STORES.weeklySchedule, AGENDA_PADRAO);
-  const inbody = await repo.semearRegistros(STORES.bodyMeasurements, INBODY_INICIAIS);
-  return { agenda, inbody };
+  return { agenda };
 }
 
 /** Já existe um plano ativo? Então não semeia de novo. */

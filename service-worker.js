@@ -10,7 +10,7 @@
 //
 // Ao mudar qualquer arquivo da casca, incremente CACHE_VERSAO.
 
-const CACHE_VERSAO = "v11";
+const CACHE_VERSAO = "v12";
 const CACHE_NOME = `treinos-corrida-${CACHE_VERSAO}`;
 
 const CASCA = [
@@ -25,7 +25,6 @@ const CASCA = [
   "./js/views/today.js",
   "./js/views/treinos.js",
   "./js/views/nutricao.js",
-  "./js/views/corpo.js",
   "./js/views/agenda-editor.js",
   "./js/views/metas-editor.js",
   "./js/views/calendar.js",
@@ -39,8 +38,6 @@ const CASCA = [
   "./js/views/components/charts.js",
   "./js/views/components/agenda-ui.js",
   "./js/views/components/nutricao-ui.js",
-  "./js/views/components/corpo-ui.js",
-  "./js/views/components/gravl-ui.js",
   "./js/services/schedule.js",
   "./js/services/dates.js",
   "./js/services/pace.js",
@@ -49,20 +46,15 @@ const CASCA = [
   "./js/services/dominio.js",
   "./js/services/ics.js",
   "./js/services/backup.js",
-  "./js/services/sync.js",
   "./js/services/theme.js",
   "./js/services/agenda.js",
   "./js/services/metas.js",
   "./js/services/nutricao.js",
-  "./js/services/corpo.js",
-  "./js/services/csv.js",
-  "./js/services/gravl.js",
   "./js/data/db.js",
   "./js/data/repository.js",
   "./js/data/seed.js",
   "./js/data/seed-hub.js",
   "./js/data/plano-alimentar.js",
-  "./js/data/grupos-musculares.js",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/maskable-512.png",

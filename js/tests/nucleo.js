@@ -12,11 +12,7 @@ import * as seedMod from "../data/seed.js";
 import { apagarDB, abrirDB, migrarPara1, DB_NOME, TODOS_STORES } from "../data/db.js";
 import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
-import * as sync from "../services/sync.js";
 import * as nutri from "../services/nutricao.js";
-import * as corpo from "../services/corpo.js";
-import * as gravl from "../services/gravl.js";
-import { parseCSV, detectarSeparador } from "../services/csv.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -214,16 +210,6 @@ export async function rodarTestes(seed, reportar) {
     const rel2 = await repo.importarBackup(backupNovo);
     eq((await repo.obterPlano("fixo")).nome, "MAIS_NOVO", "deve sobrescrever com versão mais nova");
     eq(rel2.atualizados, 1);
-  });
-
-  await test("sync: escrita marca _pendingSync e marcarSincronizados limpa", async () => {
-    await reset();
-    await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
-    let pend = await repo.listarPendentesSync();
-    eq(pend.plans.length, 1, "plano pendente após criar");
-    await repo.marcarSincronizados({ plans: pend.plans });
-    pend = await repo.listarPendentesSync();
-    eq(pend.plans.length, 0, "nada pendente após marcar");
   });
 
   // -------------------------------------------------------------------------
@@ -445,7 +431,7 @@ export async function rodarTestes(seed, reportar) {
 
     const cont = await repo.contarTudo();
     for (const s of Object.keys(dadosV1)) eq(cont[s], 1, `${s} preservado`);
-    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(cont[s], 0, `${s} vazio`);
+    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs"]) eq(cont[s], 0, `${s} vazio`);
 
     // registros byte a byte iguais
     eq(JSON.stringify(await repo.obterPlano("p1")), JSON.stringify(dadosV1.plans[0]), "plano idêntico");
@@ -482,10 +468,13 @@ export async function rodarTestes(seed, reportar) {
   await test("metas: padrão, mescla parcial e validação", async () => {
     await reset();
     const m = await obterMetas();
-    eq(m.proteinaMinG, 150); eq(m.proteinaMaxG, 170); eq(m.pesoAlvoKg, 78); eq(m.seriesPerna.panturrilha, 6);
-    await salvarMetas({ ...m, proteinaMinG: 160, seriesPerna: { quadriceps: 12 } });
+    eq(m.proteinaMinG, 150); eq(m.proteinaMaxG, 170); eq(m.lowerPorSemana, 2);
+    await salvarMetas({ proteinaMinG: 160 });
     const m2 = await obterMetas();
-    eq(m2.proteinaMinG, 160); eq(m2.seriesPerna.quadriceps, 12); eq(m2.seriesPerna.posteriorGluteo, 8, "mantém as demais");
+    eq(m2.proteinaMinG, 160); eq(m2.proteinaMaxG, 170, "mantém as demais");
+    eq(JSON.stringify(Object.keys(await obterMetas()).sort()), JSON.stringify(["lowerPorSemana", "proteinaMaxG", "proteinaMinG"]));
+    await repo.definirConfig("metas", { proteinaMinG: 155, pesoAlvoKg: 78, seriesPerna: {} });
+    eq((await obterMetas()).pesoAlvoKg, undefined, "campos de versões antigas são descartados");
     let lancou = false;
     try { await salvarMetas({ ...m2, proteinaMaxG: 100 }); } catch { lancou = true; }
     assert(lancou, "máximo < mínimo deve ser recusado");
@@ -545,30 +534,8 @@ export async function rodarTestes(seed, reportar) {
   });
 
   // -------------------------------------------------------------------------
-  // Sync e backup com os stores novos
+  // Backup com os stores novos
   // -------------------------------------------------------------------------
-  await test("sync: backend antigo (6 stores) não marca os stores do hub como sincronizados", async () => {
-    await reset();
-    await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
-    await repo.salvarItemAgenda({ diaSemana: 1, periodo: "manha", tipo: "musculacao", rotulo: "Upper A" });
-    await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
-    const antigos = ["plans", "phases", "plannedWorkouts", "completedWorkouts", "discomforts", "settings"];
-    const fetchOriginal = globalThis.fetch;
-    globalThis.fetch = async () => ({
-      ok: true,
-      json: async () => ({ ok: true, serverTime: "2026-11-01T00:00:00.000Z", records: Object.fromEntries(antigos.map((s) => [s, []])) }),
-    });
-    try {
-      const r = await sync.sincronizar();
-      eq(r.naoAceitos, 1, "só o item da agenda fica de fora");
-      const pend = await repo.listarPendentesSync();
-      eq(pend.plans.length, 0, "plano sincronizado");
-      eq(pend.weeklySchedule.length, 1, "item da agenda continua pendente");
-    } finally {
-      globalThis.fetch = fetchOriginal;
-    }
-  });
-
   await test("backup: v1 (6 stores) importa no v2; dump v2 traz os stores do hub", async () => {
     await reset();
     const dumpV1 = {
@@ -664,205 +631,6 @@ export async function rodarTestes(seed, reportar) {
     eq(nutri.refeicaoDoHorario(18), "lanche"); eq(nutri.refeicaoDoHorario(21), "jantar");
   });
 
-  // -------------------------------------------------------------------------
-  // Corpo
-  // -------------------------------------------------------------------------
-  await test("corpo: média móvel 7d com dias faltando, 2 pesagens no dia e virada de mês", () => {
-    const P = (data, pesoKg, tipo = "pesagem") => ({ data, pesoKg, tipo });
-    const pesagens = [
-      P("2026-10-27", 86.0), P("2026-10-27", 85.6),   // mesmo dia => 85,8
-      P("2026-10-29", 85.6),
-      P("2026-10-31", 85.4),
-      P("2026-11-02", 85.2),                          // virada de mês
-      P("2026-10-30", 99.9, "inbody"),                // InBody não entra
-      { ...P("2026-10-30", 50), removido: true },     // removido não entra
-    ];
-    const serie = corpo.serieDiaria(pesagens);
-    eq(serie.map((p) => p.data).join(","), "2026-10-27,2026-10-29,2026-10-31,2026-11-02");
-    eq(serie[0].peso, 85.8, "média do dia");
-    eq(corpo.mediaEm(serie, "2026-11-02"), 85.5, "(85,8+85,6+85,4+85,2)/4 — 27/10 está na janela [27/10, 02/11]");
-    eq(corpo.mediaEm(serie, "2026-11-03"), 85.4, "27/10 sai da janela");
-    eq(corpo.mediaEm(serie, "2026-10-20"), null, "janela sem pesagem => null");
-    const mm = corpo.mediaMovel7(serie);
-    eq(mm[1].media, 85.7, "29/10: (85,8+85,6)/2");
-  });
-
-  await test("corpo: ritmo semanal = média 7d de hoje − de 7 dias atrás; null sem as 2 janelas", () => {
-    const serie = [
-      { data: "2026-10-20", peso: 86.4 }, { data: "2026-10-22", peso: 86.2 },
-      { data: "2026-10-27", peso: 85.9 }, { data: "2026-10-29", peso: 85.7 },
-    ];
-    const r = corpo.ritmoSemanal(serie, "2026-10-29");
-    eq(r.anterior, 86.3, "janela 16–22/10");
-    eq(r.atual, 85.8, "janela 23–29/10");
-    eq(r.kgSemana, 0.5, "perdeu 0,5 kg");
-    eq(corpo.situacaoRitmo(0.5, METAS_PADRAO), "dentro da faixa");
-    eq(corpo.situacaoRitmo(0.2, METAS_PADRAO), "abaixo da faixa");
-    eq(corpo.situacaoRitmo(0.8, METAS_PADRAO), "acima da faixa");
-    eq(corpo.ritmoSemanal(serie.slice(2), "2026-10-29"), null, "sem a semana anterior");
-    const h = corpo.historicoRitmo(serie, 3, "2026-10-29");
-    eq(h.length, 3); eq(h[2].kgSemana, 0.5); eq(h[0].kgSemana, null);
-  });
-
-  await test("corpo: InBody iniciais semeadas uma vez; pesagem validada; remover é tombstone", async () => {
-    await reset();
-    eq((await seedMod.semearHub()).inbody, 3);
-    eq((await seedMod.semearHub()).inbody, 0, "2ª vez não insere");
-    const ib = await repo.listarMedidas({ tipo: "inbody" });
-    eq(ib.map((m) => m.data).join(","), "2026-07-08,2026-08-21,2026-10-02");
-    eq(ib[2].massaMuscularEsqueleticaKg, 35.7); eq(ib[1].massaLivreGorduraKg, 65.4); eq(ib[0].gorduraPct, 28.8);
-
-    let lancou = false;
-    try { await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 5 }); } catch { lancou = true; }
-    assert(lancou, "peso absurdo recusado");
-    const p = await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 85.2, gorduraPct: 26.5 });
-    const c = await corpo.carregarCorpo("2026-11-02");
-    eq(c.ultima.pesoKg, 85.2); eq(c.media7, 85.2); eq(c.faltamKg, 7.2, "85,2 − 78");
-    await corpo.removerMedida(p);
-    eq((await corpo.carregarCorpo("2026-11-02")).ultima, null, "removida sai das telas");
-    eq((await repo.contarTudo()).bodyMeasurements, 4, "continua no banco (tombstone)");
-  });
-
-  // -------------------------------------------------------------------------
-  // Gravl
-  // -------------------------------------------------------------------------
-  // CSV sintético no formato do export (uma linha por série). Semana 02–08/11/2026.
-  const CAB = "Date,Start Date,Workout,Source,Workout Duration (min),Energy,Exercise,Superset,Set,Set Type,Reps,Weight (kg),Distance (km),Set Duration (sec),Incline,Steps,Effort,Workout Notes";
-  const NOTA = '"Bom treino, joelho ok\ncom quebra de linha e ""aspas"""';
-  const linha = (data, ini, treino, dur, ex, n, tipo, reps, peso, nota = "") =>
-    [data, `${data} ${ini}`, treino, "Gravl", dur, "", ex, "", n, tipo, reps, peso, "", "", "", "", "", nota].join(",");
-  const serie = (data, ini, treino, dur, ex, specs, nota) =>
-    specs.map(([tipo, reps, peso], i) => linha(data, ini, treino, dur, ex, i + 1, tipo, reps, peso, nota));
-  const CSV_GRAVL = [CAB,
-    // Upper A — segunda 02/11 (dia do Upper A na agenda)
-    ...serie("2026-11-02", "07:01:00", "Upper A", 55, "Barbell Bench Press", [["Warmup", 12, 40], ["Normal", 8, 70], ["Normal", 8, 72.5], ["Normal", 6, 75]]),
-    ...serie("2026-11-02", "07:01:00", "Upper A", 55, "Seated Cable Row", [["Normal", 10, 60], ["Normal", 10, 60], ["Normal", 10, 65]]),
-    // Lower A — quinta 05/11 (dia do Lower A), com notas com vírgula/quebra de linha
-    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Leg Press", [["Warmup", 12, 80], ["Normal", 10, 140], ["Normal", 8, 150], ["Normal", 6, 160]], NOTA),
-    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Romanian Deadlift", [["Normal", 10, 60], ["Normal", 10, 60], ["Normal", 8, 65]], NOTA),
-    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Seated Calf Raise", [["Normal", 15, 40], ["Normal", 15, 40], ["Normal", 12, 45]], NOTA),
-    ...serie("2026-11-05", "19:02:11", "Lower A", 62, "Calf Press on Leg Press", [["Normal", 15, 100]], NOTA),
-    // Lower B — sábado 07/11 (o item é domingo): remanejamento
-    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Barbell Back Squat", [["Normal", 8, 80], ["Normal", 8, 80], ["Normal", 6, 85], ["Dropset", 10, 60]]),
-    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Hip Thrust", [["Normal", 10, 100], ["Normal", 10, 100], ["Normal", 10, 100]]),
-    ...serie("2026-11-07", "09:30:00", "Lower B", 58, "Lying Leg Curl", [["Normal", 12, 35], ["Normal", 12, 35]]),
-    // Full Body — sexta 06/11 (sem musculação na agenda; maioria de braço => "Upper")
-    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Dumbbell Curl", [["Normal", 12, 12], ["Normal", 12, 12], ["Normal", 10, 14]]),
-    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Triceps Pushdown", [["Normal", 12, 25], ["Normal", 12, 25], ["Normal", 12, 25]]),
-    ...serie("2026-11-06", "18:00:00", "Full Body", 40, "Goblet Squat", [["Normal", 12, 20]]),
-  ].join("\r\n");
-
-  await test("csv: aspas, vírgula, quebra de linha e aspas duplicadas; separador ; detectado", () => {
-    const m = parseCSV('a,b,c\r\n1,"x, y","linha1\nlinha2 ""citado"""\r\n\r\n2,,z');
-    eq(m.length, 3, "linha vazia descartada");
-    eq(m[1][1], "x, y");
-    eq(m[1][2], 'linha1\nlinha2 "citado"');
-    eq(m[2][1], "");
-    eq(detectarSeparador("Date;Workout;Exercise\n1;2;3"), ";");
-    eq(parseCSV("a;b\n1,5;2", ";")[1][0], "1,5");
-  });
-
-  await test("gravl: classificação por grupo (ordem das regras importa)", () => {
-    const casos = {
-      "Leg Press": "quadriceps", "Calf Press on Leg Press": "panturrilha", "Seated Calf Raise": "panturrilha",
-      "Romanian Deadlift": "posteriorGluteo", "Hip Thrust": "posteriorGluteo", "Lying Leg Curl": "posteriorGluteo",
-      "Glute Kickback (Cable)": "posteriorGluteo", "Leg Extension": "quadriceps", "Bulgarian Split Squat": "quadriceps",
-      "Barbell Back Squat": "quadriceps", "Walking Lunges": "quadriceps", "Barbell Bench Press": "peito",
-      "Seated Cable Row": "costas", "Lat Pulldown": "costas", "Upright Row": "ombros", "Lateral Raise": "ombros",
-      "Dumbbell Curl": "biceps", "Triceps Pushdown": "triceps", "Triceps Kickback": "triceps", "Plank": "core",
-      "Narrow Stance Something": "outro", "Abdução de quadril": "posteriorGluteo",
-    };
-    for (const [nome, grupo] of Object.entries(casos)) eq(gravl.classificarExercicio(nome), grupo, nome);
-  });
-
-  await test("gravl: datas ISO, com fuso, dd/mm e mm/dd; Epley", () => {
-    eq(gravl.lerData("2026-11-05"), "2026-11-05");
-    eq(gravl.lerData("2026-11-05 19:02:11"), "2026-11-05");
-    eq(gravl.lerData("05/11/2026", "dm"), "2026-11-05");
-    eq(gravl.lerData("11/05/2026", "md"), "2026-11-05");
-    eq(gravl.detectarOrdemData(["05/11/2026", "25/11/2026"]), "dm");
-    eq(gravl.detectarOrdemData(["11/05/2026", "11/25/2026"]), "md");
-    eq(gravl.detectarOrdemData(["05/11/2026"]), null, "ambíguo");
-    eq(gravl.epley(100, 1), 100);
-    eq(gravl.epley(160, 6), 192);
-    eq(gravl.epley(0, 5), null);
-    eq(gravl.numero("72,5"), 72.5); eq(gravl.numero("72.5"), 72.5); eq(gravl.numero(""), null);
-  });
-
-  await test("gravl: interpretar agrupa por treino; séries semanais ignoram aquecimento", () => {
-    const { treinos, avisos } = gravl.interpretarCSV(CSV_GRAVL);
-    eq(treinos.length, 4, "4 treinos");
-    eq(avisos.length, 0);
-    const lowerA = treinos.find((t) => t.nome === "Lower A");
-    eq(lowerA.series.length, 11);
-    eq(lowerA.notas, 'Bom treino, joelho ok\ncom quebra de linha e "aspas"', "notas com vírgula e quebra de linha");
-    eq(lowerA.duracaoMin, 62);
-    const { porGrupo, semGrupo } = gravl.seriesPorGrupo(treinos, "2026-11-02", "2026-11-08");
-    eq(porGrupo.quadriceps, 8, "Leg Press 3 + Squat 3 + Dropset 1 + Goblet 1 (aquecimento fora)");
-    eq(porGrupo.posteriorGluteo, 8, "RDL 3 + Hip Thrust 3 + Leg Curl 2");
-    eq(porGrupo.panturrilha, 4);
-    eq(porGrupo.peito, 3, "supino sem o aquecimento");
-    eq(semGrupo.length, 0);
-    assert(gravl.ehTreinoDePerna(lowerA), "Lower A é de perna");
-    assert(!gravl.ehTreinoDePerna(treinos.find((t) => t.nome === "Full Body")), "Full Body é de braço");
-    const t = gravl.tendencia1RM(treinos, "leg press");
-    eq(t.length, 1); eq(t[0].e1rm, 192, "melhor série: 160 × 6");
-  });
-
-  await test("gravl: importar casa com a agenda, remaneja e reimportar não duplica", async () => {
-    await reset();
-    await seedMod.semearHub();
-    // marcação manual ANTES da importação: deve ser ligada, não duplicada
-    const agendaHub = await repo.listarAgenda();
-    const lowerA = agendaHub.find((i) => i.rotulo === "Lower A");
-    await agenda.marcarSessao(lowerA, "2026-11-05", "feito", { rpe: 8 });
-
-    const r1 = await gravl.importarCSV(CSV_GRAVL);
-    eq(r1.novos, 4); eq(r1.atualizados, 0); eq(r1.iguais, 0);
-    eq(r1.sessoes.data, 2, "Upper A (seg) e Lower A (qui) no próprio dia");
-    eq(r1.sessoes.semana, 1, "Lower B no sábado vale pelo domingo");
-    eq(r1.sessoes.avulsa, 1, "Full Body fora da agenda");
-    eq(r1.de, "2026-11-02"); eq(r1.ate, "2026-11-07");
-    const cont1 = await repo.contarTudo();
-    eq(cont1.gravlWorkouts, 4);
-    eq(cont1.sessionLogs, 4, "a marcação manual do Lower A foi reaproveitada");
-    const qui = (await repo.listarSessoes({ de: "2026-11-05", ate: "2026-11-05" }))[0];
-    eq(qui.origem, "gravl"); eq(qui.rpe, 8, "mantém o RPE manual"); eq(qui.duracaoMin, 62, "duração do Gravl");
-
-    const r2 = await gravl.importarCSV(CSV_GRAVL);
-    eq(r2.novos, 0); eq(r2.iguais, 4, "mesmo arquivo: tudo igual");
-    eq(r2.sessoes.ja_ligado, 4);
-    const cont2 = await repo.contarTudo();
-    eq(cont2.gravlWorkouts, 4, "sem treinos duplicados");
-    eq(cont2.sessionLogs, 4, "sem sessões duplicadas");
-
-    const s = agenda.resumirSemana({
-      agenda: await repo.listarAgenda(), sessoes: await repo.listarSessoes({ de: "2026-11-02", ate: "2026-11-08" }),
-      corridas: [], inicio: "2026-11-02", metas: METAS_PADRAO,
-    });
-    eq(s.lower, 2, "Lower A + Lower B (remanejado)");
-    eq(s.extras, 1, "só o Full Body é extra");
-    const dom = s.dias.find((d) => d.data === "2026-11-08").entradas.find((e) => e.tipo === "sessao");
-    eq(dom.remanejado && dom.remanejado.data, "2026-11-07", "domingo aparece como feito no sábado");
-    eq(s.feitos, 3, "Upper A, Lower A e Lower B (sem corridas nem karatê)");
-  });
-
-  await test("gravl: treino que cita outro rótulo não ocupa o item do dia; nome genérico ocupa", async () => {
-    await reset();
-    await seedMod.semearHub();
-    const csv = [CAB,
-      ...serie("2026-11-02", "07:00:00", "Lower A", 50, "Leg Press", [["Normal", 10, 140]]),      // segunda é Upper A
-      ...serie("2026-11-04", "07:00:00", "Treino da manhã", 45, "Bench Press", [["Normal", 8, 70]]), // quarta é Upper B
-    ].join("\n");
-    const r = await gravl.importarCSV(csv);
-    eq(r.sessoes.semana, 1, "Lower A vai para o Lower A de quinta");
-    eq(r.sessoes.data, 1, "nome genérico ocupa o Upper B do dia");
-    const ag = await repo.listarAgenda();
-    const seg = await repo.listarSessoes({ de: "2026-11-02", ate: "2026-11-02" });
-    eq(seg[0].scheduleItemId, ag.find((i) => i.rotulo === "Lower A").id, "não marcou o Upper A");
-    eq(seg[0].rotulo, "Lower A");
-  });
-
   await test("agenda: treino fora da agenda com o mesmo rótulo é remanejado para o item da semana", async () => {
     await reset();
     await seedMod.semearHub();
@@ -871,75 +639,6 @@ export async function rodarTestes(seed, reportar) {
     eq(log.scheduleItemId, lowerB.id, "ligado ao Lower B de domingo");
     const outro = await agenda.registrarSessaoAvulsa({ data: "2026-11-07", tipo: "musculacao", rotulo: "Treino livre", periodo: "noite" });
     eq(outro.scheduleItemId, null, "rótulo sem item correspondente fica fora da agenda");
-  });
-
-  await test("backup: treino do Gravl com a mesma chave e outro ID não aborta o import", async () => {
-    await reset();
-    const { treinos } = gravl.interpretarCSV(CSV_GRAVL);
-    await repo.importarTreinosGravl(treinos);
-    const dump = await repo.exportarTudo();
-    const alheio = { ...dump.stores.gravlWorkouts[0], id: "outro-id", atualizadoEm: "2030-01-01T00:00:00.000Z" };
-    const r = await repo.importarBackup({ stores: { gravlWorkouts: [alheio], settings: [{ chave: "z", valor: 1, atualizadoEm: "2026-01-01T00:00:00.000Z" }] } });
-    eq(r.ignorados, 1); eq(r.criados, 1, "o resto do backup entra");
-    eq((await repo.contarTudo()).gravlWorkouts, 4);
-  });
-
-  await test("sync: backend/Codigo.gs conhece todos os stores do app", async () => {
-    const resp = await fetch(new URL("../../backend/Codigo.gs", import.meta.url));
-    const gs = await resp.text();
-    const m = /var STORES = \[([\s\S]*?)\];/.exec(gs);
-    assert(m, "lista STORES encontrada no Codigo.gs");
-    const doGs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort().join(",");
-    eq(doGs, [...TODOS_STORES].sort().join(","), "mesma lista no app e no Apps Script");
-  });
-
-  await test("sync: ida e volta com backend atualizado (11 stores) — outro aparelho recebe tudo", async () => {
-    // Servidor falso com a mesma regra do Codigo.gs: LWW por atualizadoEm e
-    // devolve o que mudou desde `since`, com uma chave por store conhecido.
-    const servidor = Object.fromEntries(TODOS_STORES.map((s) => [s, new Map()]));
-    let relogio = 0;
-    const fetchOriginal = globalThis.fetch;
-    globalThis.fetch = async (_url, opts) => {
-      const body = JSON.parse(opts.body);
-      const records = {};
-      for (const s of TODOS_STORES) {
-        const chave = s === "settings" ? "chave" : "id";
-        for (const rec of body.push[s] || []) {
-          const atual = servidor[s].get(rec[chave]);
-          if (!atual || (rec.atualizadoEm || "") > (atual.atualizadoEm || "")) servidor[s].set(rec[chave], { ...rec, _pendingSync: false });
-        }
-        records[s] = [...servidor[s].values()].filter((r) => !body.since || (r.atualizadoEm || "") > body.since);
-      }
-      relogio++;
-      return { ok: true, json: async () => ({ ok: true, serverTime: `2099-01-01T00:00:0${relogio}.000Z`, records }) };
-    };
-    try {
-      // aparelho A
-      await reset();
-      await seedMod.semearHub();
-      const item = (await repo.listarAgenda())[0];
-      await agenda.marcarSessao(item, "2026-11-02", "feito");
-      await nutri.registrarProteinaExtra({ data: "2026-11-02", proteinaG: 30 });
-      await corpo.salvarPesagem({ data: "2026-11-02", pesoKg: 85.1 });
-      await repo.importarTreinosGravl(gravl.interpretarCSV(CSV_GRAVL).treinos);
-      await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
-      const contA = await repo.contarTudo();
-      const r = await sync.sincronizar();
-      eq(r.naoAceitos, 0, "backend novo aceita todos os stores");
-      const pend = await repo.listarPendentesSync();
-      for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(pend[s].length, 0, `${s} sincronizado`);
-
-      // aparelho B (banco novo): recebe tudo, sem duplicar o seed
-      await reset();
-      await seedMod.semearHub(); // mesmo seed com UUIDs fixos
-      await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
-      await sync.sincronizar();
-      const contB = await repo.contarTudo();
-      for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(contB[s], contA[s], `${s} igual nos dois aparelhos`);
-      eq((await nutri.carregarDia("2026-11-02")).totais.proteina, 30, "proteína chega ao outro aparelho");
-    } finally {
-      globalThis.fetch = fetchOriginal;
-    }
   });
 
   await reset();

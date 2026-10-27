@@ -6,7 +6,6 @@ import { semearHub } from "./data/seed.js";
 import { iniciarRouter } from "./views/router.js";
 import { renderOnboarding } from "./views/onboarding.js";
 import { carregarEAplicarTema } from "./services/theme.js";
-import { sincronizarSePossivel } from "./services/sync.js";
 import { el, limpar, botao } from "./views/components/ui.js";
 
 // ---------------------------------------------------------------------------
@@ -82,8 +81,6 @@ async function iniciar() {
       });
     } else {
       iniciarRouter();
-      // sync em segundo plano (silencioso se offline/não configurado)
-      sincronizarSePossivel().then((r) => { if (r) location.hash = location.hash || "#/hoje"; });
     }
   } catch (e) {
     limpar(container);

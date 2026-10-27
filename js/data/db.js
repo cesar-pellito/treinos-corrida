@@ -3,15 +3,15 @@
 // Esta é a ÚNICA camada que conhece a API do IndexedDB. Ninguém acima (services,
 // views) deve importar este módulo diretamente: tudo passa por repository.js.
 //
-// Fonte da verdade dos dados. Não é cache de servidor. A sincronização opcional
-// com Google Sheets (Etapa 7) lê/escreve por cima do repository, não daqui.
+// Fonte da verdade dos dados. Não há servidor: o backup é o arquivo JSON
+// exportado em Ajustes (via repository.exportarTudo).
 
 export const DB_NOME = "treinos-corrida";
 export const DB_VERSAO = 2;
 
 // Nomes dos object stores.
 //   v1: os seis da corrida.
-//   v2: o hub (agenda semanal, sessões, alimentação, corpo, Gravl).
+//   v2: o hub (agenda semanal, sessões, alimentação).
 export const STORES = {
   plans: "plans",
   phases: "phases",
@@ -22,12 +22,10 @@ export const STORES = {
   weeklySchedule: "weeklySchedule",
   sessionLogs: "sessionLogs",
   foodLogs: "foodLogs",
-  bodyMeasurements: "bodyMeasurements",
-  gravlWorkouts: "gravlWorkouts",
 };
 
-// Todos os stores, na ordem de criação. Todos usam campos de sync
-// (atualizadoEm, _pendingSync) e entram no backup e na sincronização.
+// Todos os stores, na ordem de criação. Todos carimbam atualizadoEm (merge
+// last-write-wins no import) e entram no backup JSON.
 export const TODOS_STORES = Object.values(STORES);
 
 let _dbPromise = null;
@@ -134,16 +132,6 @@ export function migrarPara2(db) {
   // Refeições do plano e proteína extra.
   const comida = db.createObjectStore(STORES.foodLogs, { keyPath: "id" });
   comida.createIndex("data", "data", { unique: false });
-
-  // Pesagens (balança) e InBody.
-  const corpo = db.createObjectStore(STORES.bodyMeasurements, { keyPath: "id" });
-  corpo.createIndex("data", "data", { unique: false });
-  corpo.createIndex("tipo", "tipo", { unique: false });
-
-  // Um registro por treino importado do Gravl (as séries vão dentro).
-  const gravl = db.createObjectStore(STORES.gravlWorkouts, { keyPath: "id" });
-  gravl.createIndex("chave", "chave", { unique: true });
-  gravl.createIndex("data", "data", { unique: false });
 }
 
 /**

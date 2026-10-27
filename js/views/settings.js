@@ -1,16 +1,14 @@
 // settings.js — Ajustes completos: preferências, exportar .ics, backup JSON,
-// importar, sincronização com Google Sheets, tema e ajuda.
+// importar, tema e ajuda.
 
 import * as repo from "../data/repository.js";
 import { irPara } from "./router.js";
 import { nomeDiaSemana, deISODate, hoje as hojeISO } from "../services/dates.js";
 import { gerarICS } from "../services/ics.js";
 import { exportarBackup, importarBackupTexto, entregarArquivo, estadoBackup } from "../services/backup.js";
-import * as sync from "../services/sync.js";
 import { aplicarTema } from "../services/theme.js";
 import { calcularZonasFC } from "../services/dominio.js";
 import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio, abrirSheet } from "./components/ui.js";
-import { botaoImportarGravl } from "./components/gravl-ui.js";
 
 const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -36,15 +34,6 @@ export async function renderAjustes(container) {
         botao("Agenda semanal", { bloco: true, onClick: () => irPara("agenda") }),
         botao("Metas", { bloco: true, onClick: () => irPara("metas") }),
       ]),
-    ])
-  );
-
-  // ---- Gravl ----
-  container.appendChild(
-    card([
-      el("p", { class: "eyebrow", text: "Musculação (Gravl)" }),
-      el("p", { class: "sub", text: "No Gravl, exporte seus treinos em CSV e escolha o arquivo aqui. Tudo é lido no aparelho: marca as sessões da agenda, conta séries por grupo e calcula o 1RM estimado. Pode reimportar o mesmo arquivo sem duplicar." }),
-      botaoImportarGravl(),
     ])
   );
 
@@ -131,6 +120,7 @@ export async function renderAjustes(container) {
   container.appendChild(
     card([
       el("p", { class: "eyebrow", text: "Backup" }),
+      el("p", { class: "sub", text: "Seus dados ficam só neste aparelho. O backup é um arquivo JSON: ao exportar, o celular abre o menu de compartilhar — salve no Google Drive ou no app Arquivos. Para restaurar (ou passar para outro aparelho), use “Importar backup”: o que já existe não duplica." }),
       el("p", {
         class: backupSt.vencido ? "aviso" : "sub",
         style: backupSt.vencido ? { background: "var(--warn-weak)", color: "var(--warn)", padding: "10px 12px", borderRadius: "10px" } : {},
@@ -144,39 +134,6 @@ export async function renderAjustes(container) {
           },
         }),
         botaoImportar(),
-      ]),
-    ])
-  );
-
-  // ---- Sincronização com Google Sheets ----
-  const inUrl = el("input", { type: "text", id: "s-url", placeholder: "URL do app da Web (Apps Script)", value: cfg.syncUrl || "" });
-  const inToken = el("input", { type: "text", id: "s-token", placeholder: "Token", value: cfg.syncToken || "" });
-  const statusSync = el("p", { class: "sub", text: cfg.ultimoSync ? `Última sincronização: ${cfg.ultimoSync.slice(0, 16).replace("T", " ")}` : "Nunca sincronizado." });
-  container.appendChild(
-    card([
-      el("p", { class: "eyebrow", text: "Sincronização (Google Sheets)" }),
-      el("p", { class: "sub", text: "Opcional. Mantém uma cópia na nuvem e sincroniza entre dispositivos. O app continua 100% offline; isto roda em segundo plano." }),
-      campo("URL do endpoint", inUrl),
-      campo("Token", inToken),
-      statusSync,
-      el("div", { class: "lista-acoes" }, [
-        botao("Salvar e testar conexão", {
-          bloco: true, onClick: async () => {
-            await repo.definirConfig("syncUrl", inUrl.value.trim() || null);
-            await repo.definirConfig("syncToken", inToken.value.trim() || "");
-            try { await sync.testarConexao(); toast("Conexão OK."); }
-            catch (e) { toast("Falha: " + e.message); }
-          },
-        }),
-        botao("Sincronizar agora", {
-          variante: "primary", bloco: true, onClick: async () => {
-            try {
-              const r = await sync.sincronizar();
-              statusSync.textContent = `Enviados ${r.enviados}; recebidos ${r.pull.criados + r.pull.atualizados}.` + (r.naoAceitos ? ` ${r.naoAceitos} registro(s) do hub aguardam a nova versão do Apps Script (veja backend/Codigo.gs).` : "");
-              toast("Sincronizado.");
-            } catch (e) { toast("Falha: " + e.message); }
-          },
-        }),
       ]),
     ])
   );
@@ -199,7 +156,6 @@ function confirmarRecomeco() {
       confirmar.disabled = true;
       try {
         await repo.arquivarPlanoAtivo();
-        await sync.sincronizarSePossivel(); // leva o arquivamento ao Sheets antes de sair
         location.replace(location.pathname + location.search); // recarrega sem hash -> onboarding
       } catch (e) {
         confirmar.disabled = false;
@@ -208,7 +164,7 @@ function confirmarRecomeco() {
     },
   });
   const fechar = abrirSheet("Recomeçar o plano de corrida?", el("div", { class: "stack" }, [
-    el("p", { class: "sub", text: "O plano de corrida atual e as corridas registradas saem das telas. Eles não são apagados: continuam guardados no aparelho e entram no backup e na sincronização com o Google Sheets." }),
+    el("p", { class: "sub", text: "O plano de corrida atual e as corridas registradas saem das telas. Eles não são apagados: continuam guardados no aparelho e entram no backup." }),
     el("p", { class: "sub", text: "Se você importou os treinos no Google Agenda, apague aquele calendário e exporte o .ics de novo depois." }),
     el("div", { class: "lista-acoes" }, [
       botao("Exportar backup antes", {
