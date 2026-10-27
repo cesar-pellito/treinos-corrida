@@ -14,9 +14,9 @@ import { el, card, botao, tituloVista, abrirSheet, segmentos, toast } from "./co
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const DOW_CURTO = ["D", "S", "T", "Q", "Q", "S", "S"];
 
-export async function renderCalendario(container) {
+export async function renderCalendario(container, _param, { embutido = false } = {}) {
   const plan = await repo.planoAtivo();
-  container.appendChild(tituloVista("Calendário"));
+  if (!embutido) container.appendChild(tituloVista("Calendário"));
   if (!plan) { container.appendChild(el("p", { class: "sub", text: "Sem plano ativo." })); return; }
 
   const pds = plan.primeiroDiaSemana ?? 1;

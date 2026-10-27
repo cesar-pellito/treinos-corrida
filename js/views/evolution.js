@@ -14,8 +14,8 @@ function ultimoNaoNulo(arr) {
   return null;
 }
 
-export async function renderEvolucao(container) {
-  container.appendChild(tituloVista("Evolução"));
+export async function renderEvolucao(container, _param, { embutido = false } = {}) {
+  if (!embutido) container.appendChild(tituloVista("Evolução"));
   const plan = await repo.planoAtivo();
   if (!plan) { container.appendChild(estadoVazio("Sem plano ativo")); return; }
 

@@ -9,7 +9,10 @@
 
 import * as repo from "../data/repository.js";
 import * as seedMod from "../data/seed.js";
-import { apagarDB } from "../data/db.js";
+import { apagarDB, abrirDB, migrarPara1, DB_NOME, TODOS_STORES } from "../data/db.js";
+import * as agenda from "../services/agenda.js";
+import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
+import * as sync from "../services/sync.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -396,6 +399,191 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.obterPlanned(w3.id)).dataPlanejada, "2026-08-08", "pendente posterior +1");
     eq((await repo.obterPlanned(w4.id)).dataPlanejada, "2026-08-11", "pendente posterior +1");
     eq(r.novoFim, "2026-08-11", "fim do plano estendido");
+  });
+
+  // =========================================================================
+  // Hub (v2)
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // Migração v1 -> v2 a partir de um banco v1 de verdade, com dados
+  // -------------------------------------------------------------------------
+  await test("migração v1→v2: dados da corrida intactos e stores do hub criados", async () => {
+    await reset();
+    const dadosV1 = {
+      plans: [{ id: "p1", nome: "Plano", ativo: true, dataInicio: "2026-08-03", criadoEm: "2026-08-01T10:00:00.000Z", atualizadoEm: "2026-08-01T10:00:00.000Z", _pendingSync: false }],
+      phases: [{ id: "f1", planId: "p1", numero: 1, nome: "F1", atualizadoEm: "2026-08-01T10:00:00.000Z" }],
+      plannedWorkouts: [{ id: "w1", planId: "p1", phaseId: "f1", semana: 1, sessao: "A", dataPlanejada: "2026-08-03", status: "concluido", titulo: "T", atualizadoEm: "2026-08-03T10:00:00.000Z" }],
+      completedWorkouts: [{ id: "c1", plannedWorkoutId: "w1", avulso: false, data: "2026-08-03", duracaoSeg: 1500, distanciaMetros: 3500, atualizadoEm: "2026-08-03T10:00:00.000Z" }],
+      discomforts: [{ id: "d1", completedWorkoutId: "c1", data: "2026-08-03", regiao: "fascia_plantar_calcanhar", intensidade: 2, atualizadoEm: "2026-08-03T10:00:00.000Z" }],
+      settings: [{ chave: "temaEscuro", valor: "auto", atualizadoEm: "2026-08-01T10:00:00.000Z" }],
+    };
+    // 1) banco v1 com o schema exato da v1
+    const v1 = await new Promise((resolve, reject) => {
+      const r = globalThis.indexedDB.open(DB_NOME, 1);
+      r.onupgradeneeded = () => migrarPara1(r.result);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    eq(v1.objectStoreNames.length, 6, "v1 tem 6 stores");
+    await new Promise((resolve, reject) => {
+      const tx = v1.transaction(Object.keys(dadosV1), "readwrite");
+      for (const [s, recs] of Object.entries(dadosV1)) for (const r of recs) tx.objectStore(s).put(r);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    v1.close();
+
+    // 2) o app abre (v2) e migra
+    const db = await abrirDB();
+    eq(db.version, 2, "versão 2");
+    for (const s of TODOS_STORES) assert(db.objectStoreNames.contains(s), `store ${s} existe`);
+
+    const cont = await repo.contarTudo();
+    for (const s of Object.keys(dadosV1)) eq(cont[s], 1, `${s} preservado`);
+    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "bodyMeasurements", "gravlWorkouts"]) eq(cont[s], 0, `${s} vazio`);
+
+    // registros byte a byte iguais
+    eq(JSON.stringify(await repo.obterPlano("p1")), JSON.stringify(dadosV1.plans[0]), "plano idêntico");
+    eq(JSON.stringify(await repo.obterPlanned("w1")), JSON.stringify(dadosV1.plannedWorkouts[0]), "planejado idêntico");
+    eq(JSON.stringify(await repo.obterCompleted("c1")), JSON.stringify(dadosV1.completedWorkouts[0]), "realizado idêntico");
+    eq(JSON.stringify((await repo.listarDesconfortosPorTreino("c1"))[0]), JSON.stringify(dadosV1.discomforts[0]), "desconforto idêntico");
+    eq(await repo.obterConfig("temaEscuro"), "auto", "settings preservado");
+
+    // índices da v1 continuam funcionando
+    eq((await repo.plannedNaData("2026-08-03")).length, 1, "índice dataPlanejada");
+    eq((await repo.completedPorPlanned("w1")).id, "c1", "índice plannedWorkoutId");
+
+    // 3) depois de migrar, o seed do hub entra sem tocar no resto
+    await seedMod.semearHub();
+    eq((await repo.contarTudo()).plannedWorkouts, 1, "seed não mexe na corrida");
+  });
+
+  // -------------------------------------------------------------------------
+  // Seed do hub e metas
+  // -------------------------------------------------------------------------
+  await test("seed do hub: agenda-padrão idempotente e respeita remoção", async () => {
+    await reset();
+    eq((await seedMod.semearHub()).agenda, 10, "10 itens na 1ª vez");
+    eq((await seedMod.semearHub()).agenda, 0, "2ª vez não insere nada");
+    const ag = await repo.listarAgenda();
+    eq(ag.length, 10);
+    eq(ag.filter((i) => i.tipo === "musculacao" && agenda.ehLower(i.rotulo)).length, 2, "dois treinos de perna");
+    eq(ag.filter((i) => i.tipo === "corrida").map((i) => i.diaSemana).sort().join(","), "4,6", "corrida qui e sáb");
+    await repo.removerItemAgenda(ag[0].id);
+    await seedMod.semearHub();
+    eq((await repo.listarAgenda()).length, 9, "item removido não volta pelo seed");
+  });
+
+  await test("metas: padrão, mescla parcial e validação", async () => {
+    await reset();
+    const m = await obterMetas();
+    eq(m.proteinaMinG, 150); eq(m.proteinaMaxG, 170); eq(m.pesoAlvoKg, 78); eq(m.seriesPerna.panturrilha, 6);
+    await salvarMetas({ ...m, proteinaMinG: 160, seriesPerna: { quadriceps: 12 } });
+    const m2 = await obterMetas();
+    eq(m2.proteinaMinG, 160); eq(m2.seriesPerna.quadriceps, 12); eq(m2.seriesPerna.posteriorGluteo, 8, "mantém as demais");
+    let lancou = false;
+    try { await salvarMetas({ ...m2, proteinaMaxG: 100 }); } catch { lancou = true; }
+    assert(lancou, "máximo < mínimo deve ser recusado");
+  });
+
+  // -------------------------------------------------------------------------
+  // Agenda e sessões
+  // -------------------------------------------------------------------------
+  await test("agenda: 1 registro por (data, item); novo toque edita; tocar de novo desmarca", async () => {
+    await reset();
+    const item = await repo.salvarItemAgenda({ diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A" });
+    const d = "2026-11-05"; // quinta
+    const a = await agenda.marcarSessao(item, d, "feito");
+    const b = await agenda.marcarSessao(item, d, "pulado", { duracaoMin: 40 });
+    eq(a.id, b.id, "mesmo registro");
+    eq(b.status, "pulado"); eq(b.duracaoMin, 40);
+    eq((await repo.listarSessoes()).length, 1, "sem duplicar");
+
+    await agenda.alternarSessao(item, d, "pulado", b); // mesmo status => desmarca
+    eq((await repo.listarSessoes()).length, 0, "desmarcado some da lista");
+    const c = await agenda.alternarSessao(item, d, "feito", null);
+    eq(c.id, a.id, "reativa o mesmo registro (tombstone), não cria outro");
+    eq((await repo.contarTudo()).sessionLogs, 1, "um único registro no banco");
+
+    await repo.salvarItemAgenda({ ...item, rotulo: "Upper A" });
+    eq((await repo.listarSessoes())[0].rotulo, "Lower A", "editar a agenda não reescreve o histórico");
+
+    const outroDia = await agenda.marcarSessao(item, "2026-11-12", "feito");
+    assert(outroDia.id !== a.id, "outra data => outro registro");
+  });
+
+  await test("agenda: aderência ignora opcionais; Lower conta mesmo fora do dia", () => {
+    const ag = [
+      { id: "u", diaSemana: 1, periodo: "manha", tipo: "musculacao", rotulo: "Upper A" },
+      { id: "k", diaSemana: 5, periodo: "noite", tipo: "karate", rotulo: "Leve", opcional: true },
+      { id: "l", diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A" },
+      { id: "r", diaSemana: 4, periodo: "manha", tipo: "corrida", rotulo: "Corrida curta" },
+    ];
+    const ses = [
+      { id: "1", data: "2026-11-02", scheduleItemId: "u", tipo: "musculacao", rotulo: "Upper A", status: "feito" },
+      { id: "2", data: "2026-11-06", scheduleItemId: "k", tipo: "karate", rotulo: "Leve", status: "feito", opcional: true },
+      { id: "3", data: "2026-11-05", scheduleItemId: "l", tipo: "musculacao", rotulo: "Lower A", status: "pulado" },
+      { id: "4", data: "2026-11-07", scheduleItemId: null, tipo: "musculacao", rotulo: "Lower A", periodo: "manha", status: "feito" },
+    ];
+    const corridas = [{ id: "w", dataPlanejada: "2026-11-05", status: "concluido", titulo: "Corrida" }];
+    const r = agenda.resumirSemana({ agenda: ag, sessoes: ses, corridas, inicio: "2026-11-02", metas: METAS_PADRAO });
+    eq(r.previstos, 3, "Upper + Lower + corrida; opcional fora");
+    eq(r.feitos, 2, "Upper + corrida");
+    eq(r.pulados, 1);
+    eq(r.extras, 2, "karatê opcional + Lower fora da agenda");
+    eq(r.lower, 1, "Lower feito no sábado conta");
+    eq(r.metaLower, 2);
+    const qui = r.dias.find((d) => d.data === "2026-11-05");
+    eq(qui.entradas.map((e) => e.tipo).join(","), "corrida,sessao", "manhã (corrida) antes da noite (Lower)");
+    const sab = r.dias.find((d) => d.data === "2026-11-07");
+    eq(sab.entradas[0].tipo, "avulsa", "sessão fora da agenda aparece no dia");
+  });
+
+  // -------------------------------------------------------------------------
+  // Sync e backup com os stores novos
+  // -------------------------------------------------------------------------
+  await test("sync: backend antigo (6 stores) não marca os stores do hub como sincronizados", async () => {
+    await reset();
+    await repo.salvarPlano({ nome: "P", versao: 1, ativo: true }, { novo: true });
+    await repo.salvarItemAgenda({ diaSemana: 1, periodo: "manha", tipo: "musculacao", rotulo: "Upper A" });
+    await repo.definirConfig("syncUrl", "https://exemplo.invalid/exec");
+    const antigos = ["plans", "phases", "plannedWorkouts", "completedWorkouts", "discomforts", "settings"];
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({ ok: true, serverTime: "2026-11-01T00:00:00.000Z", records: Object.fromEntries(antigos.map((s) => [s, []])) }),
+    });
+    try {
+      const r = await sync.sincronizar();
+      eq(r.naoAceitos, 1, "só o item da agenda fica de fora");
+      const pend = await repo.listarPendentesSync();
+      eq(pend.plans.length, 0, "plano sincronizado");
+      eq(pend.weeklySchedule.length, 1, "item da agenda continua pendente");
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+  });
+
+  await test("backup: v1 (6 stores) importa no v2; dump v2 traz os stores do hub", async () => {
+    await reset();
+    const dumpV1 = {
+      schemaVersion: 1,
+      stores: {
+        plans: [{ id: "p", nome: "P", ativo: true, atualizadoEm: "2026-08-01T00:00:00.000Z" }],
+        settings: [{ chave: "x", valor: 1, atualizadoEm: "2026-08-01T00:00:00.000Z" }],
+      },
+    };
+    eq((await repo.importarBackup(dumpV1)).criados, 2);
+    await repo.salvarItemAgenda({ diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B" });
+    const dump = await repo.exportarTudo();
+    eq(dump.schemaVersion, 2);
+    eq(dump.stores.weeklySchedule.length, 1, "agenda no backup");
+    await reset();
+    await repo.importarBackup(dump);
+    const r2 = await repo.importarBackup(dump);
+    eq(r2.criados, 0, "2ª importação não cria nada");
+    eq((await repo.contarTudo()).weeklySchedule, 1, "sem duplicar");
   });
 
   await reset();

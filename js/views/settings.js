@@ -27,11 +27,22 @@ export async function renderAjustes(container) {
   const cfg = await repo.obterConfigs();
   const backupSt = await estadoBackup();
 
+  // ---- Hub: agenda e metas ----
+  container.appendChild(
+    card([
+      el("p", { class: "eyebrow", text: "Semana e metas" }),
+      el("div", { class: "lista-acoes" }, [
+        botao("Agenda semanal", { bloco: true, onClick: () => irPara("agenda") }),
+        botao("Metas", { bloco: true, onClick: () => irPara("metas") }),
+      ]),
+    ])
+  );
+
   // ---- Plano ----
   const inicio = deISODate(plan.dataInicio);
   container.appendChild(
     card([
-      el("p", { class: "eyebrow", text: "Plano" }),
+      el("p", { class: "eyebrow", text: "Plano de corrida" }),
       el("h2", { class: "titulo-lg", text: plan.nome }),
       linha("Início (semana 1)", `${String(inicio.getDate()).padStart(2, "0")}/${String(inicio.getMonth() + 1).padStart(2, "0")}/${inicio.getFullYear()} (${nomeDiaSemana(plan.dataInicio)})`),
       linha("Dias de treino", (plan.diasTreino || []).map((d) => NOMES_DIA[d]).join(", ") || "—"),
@@ -151,7 +162,7 @@ export async function renderAjustes(container) {
           variante: "primary", bloco: true, onClick: async () => {
             try {
               const r = await sync.sincronizar();
-              statusSync.textContent = `Enviados ${r.enviados}; recebidos ${r.pull.criados + r.pull.atualizados}.`;
+              statusSync.textContent = `Enviados ${r.enviados}; recebidos ${r.pull.criados + r.pull.atualizados}.` + (r.naoAceitos ? ` ${r.naoAceitos} registro(s) do hub aguardam a nova versão do Apps Script (veja backend/Codigo.gs).` : "");
               toast("Sincronizado.");
             } catch (e) { toast("Falha: " + e.message); }
           },
@@ -163,9 +174,9 @@ export async function renderAjustes(container) {
   // ---- Recomeçar o plano ----
   container.appendChild(
     card([
-      el("p", { class: "eyebrow", text: "Recomeçar" }),
-      el("p", { class: "sub", text: "Volta à configuração inicial para escolher nova data de início e dias de treino. Hoje, Calendário, Histórico e Evolução começam do zero." }),
-      botao("Recomeçar o plano…", { variante: "perigo", bloco: true, onClick: confirmarRecomeco }),
+      el("p", { class: "eyebrow", text: "Recomeçar a corrida" }),
+      el("p", { class: "sub", text: "Volta à configuração do plano de corrida para escolher nova data de início e dias. Calendário, Histórico e Evolução da corrida começam do zero; agenda, sessões e metas não mudam." }),
+      botao("Recomeçar o plano de corrida…", { variante: "perigo", bloco: true, onClick: confirmarRecomeco }),
     ])
   );
 
@@ -186,8 +197,8 @@ function confirmarRecomeco() {
       }
     },
   });
-  const fechar = abrirSheet("Recomeçar o plano?", el("div", { class: "stack" }, [
-    el("p", { class: "sub", text: "O plano atual e os treinos registrados saem de todas as telas. Eles não são apagados: continuam guardados no aparelho e entram no backup e na sincronização com o Google Sheets." }),
+  const fechar = abrirSheet("Recomeçar o plano de corrida?", el("div", { class: "stack" }, [
+    el("p", { class: "sub", text: "O plano de corrida atual e as corridas registradas saem das telas. Eles não são apagados: continuam guardados no aparelho e entram no backup e na sincronização com o Google Sheets." }),
     el("p", { class: "sub", text: "Se você importou os treinos no Google Agenda, apague aquele calendário e exporte o .ics de novo depois." }),
     el("div", { class: "lista-acoes" }, [
       botao("Exportar backup antes", {

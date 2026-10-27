@@ -16,7 +16,9 @@ export function el(tag, props = {}, children = []) {
     else if (k === "dataset") Object.assign(node.dataset, v);
     else if (k === "style" && typeof v === "object") Object.assign(node.style, v);
     else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2).toLowerCase(), v);
-    else node.setAttribute(k, v === true ? "" : String(v));
+    // aria-* precisa do texto "true" (ex.: [aria-pressed="true"] no CSS);
+    // atributos booleanos HTML (disabled, required…) usam presença vazia.
+    else node.setAttribute(k, v === true && !k.startsWith("aria-") ? "" : String(v));
   }
   for (const c of [].concat(children)) {
     if (c == null || c === false) continue;

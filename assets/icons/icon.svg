@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- PaceUp — três anéis: treino (externo), proteína (meio), peso (interno).
+       Fonte dos PNGs em assets/icons/. Para gerar de novo, veja o README (seção Ícones). -->
+  <rect width="512" height="512" rx="112" fill="#0f9488"/>
+  <g fill="none" stroke-linecap="round" stroke-width="34">
+    <circle cx="256" cy="256" r="170" stroke="#0d6e66"/>
+    <circle cx="256" cy="256" r="115" stroke="#0d6e66"/>
+    <circle cx="256" cy="256" r="60" stroke="#0d6e66"/>
+    <path d="M256 86 A170 170 0 1 1 100 324" stroke="#ffffff"/>
+    <path d="M256 141 A115 115 0 1 1 141 256" stroke="#c9f2ec"/>
+    <path d="M256 196 A60 60 0 0 1 316 256" stroke="#fde68a"/>
+  </g>
+</svg>

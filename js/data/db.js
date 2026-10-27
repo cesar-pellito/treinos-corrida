@@ -7,9 +7,11 @@
 // com Google Sheets (Etapa 7) lê/escreve por cima do repository, não daqui.
 
 export const DB_NOME = "treinos-corrida";
-export const DB_VERSAO = 1;
+export const DB_VERSAO = 2;
 
-// Nomes dos object stores. Seis stores, conforme a spec.
+// Nomes dos object stores.
+//   v1: os seis da corrida.
+//   v2: o hub (agenda semanal, sessões, alimentação, corpo, Gravl).
 export const STORES = {
   plans: "plans",
   phases: "phases",
@@ -17,19 +19,27 @@ export const STORES = {
   completedWorkouts: "completedWorkouts",
   discomforts: "discomforts",
   settings: "settings",
+  weeklySchedule: "weeklySchedule",
+  sessionLogs: "sessionLogs",
+  foodLogs: "foodLogs",
+  bodyMeasurements: "bodyMeasurements",
+  gravlWorkouts: "gravlWorkouts",
 };
 
-// Todos os stores exceto settings usam campos de sync (atualizadoEm, _pendingSync).
-export const STORES_SINCRONIZAVEIS = [
-  STORES.plans,
-  STORES.phases,
-  STORES.plannedWorkouts,
-  STORES.completedWorkouts,
-  STORES.discomforts,
-  STORES.settings,
-];
+// Todos os stores, na ordem de criação. Todos usam campos de sync
+// (atualizadoEm, _pendingSync) e entram no backup e na sincronização.
+export const TODOS_STORES = Object.values(STORES);
 
 let _dbPromise = null;
+let _aoBloquear = null;
+
+/**
+ * Registra quem avisa o usuário quando a abertura fica bloqueada por outra aba
+ * com a versão antiga do banco. A camada de dados não conhece o DOM: só chama.
+ */
+export function definirAoBloquear(fn) {
+  _aoBloquear = fn;
+}
 
 /**
  * Abre (e cria/atualiza) o banco. Idempotente: reaproveita a mesma conexão.
@@ -63,41 +73,77 @@ export function abrirDB() {
     };
 
     req.onerror = () => reject(req.error || new Error("Falha ao abrir o banco."));
-    req.onblocked = () => reject(new Error("Abertura do banco bloqueada por outra aba aberta."));
+    // Outra aba com a versão antiga ainda está aberta. NÃO rejeita: a abertura
+    // segue pendente e completa sozinha assim que a outra aba fechar a conexão
+    // (o onversionchange dela faz isso). Só avisamos.
+    req.onblocked = () => { if (_aoBloquear) _aoBloquear(); };
   });
   return _dbPromise;
 }
 
-/** Cria/migra os stores. Migrações futuras entram como `if (versaoAntiga < N)`. */
+/**
+ * Cria/migra os stores. Cada versão só ADICIONA: nenhuma migração toca em store
+ * ou registro existente. Migrações futuras entram como `if (versaoAntiga < N)`.
+ */
 function criarSchema(db, versaoAntiga) {
-  if (versaoAntiga < 1) {
-    const plans = db.createObjectStore(STORES.plans, { keyPath: "id" });
-    plans.createIndex("ativo", "ativo", { unique: false });
+  if (versaoAntiga < 1) migrarPara1(db);
+  if (versaoAntiga < 2) migrarPara2(db);
+}
 
-    const phases = db.createObjectStore(STORES.phases, { keyPath: "id" });
-    phases.createIndex("planId", "planId", { unique: false });
-    phases.createIndex("numero", "numero", { unique: false });
+/** v1: os seis stores da corrida. Exportada para o teste de migração v1→v2. */
+export function migrarPara1(db) {
+  const plans = db.createObjectStore(STORES.plans, { keyPath: "id" });
+  plans.createIndex("ativo", "ativo", { unique: false });
 
-    const planned = db.createObjectStore(STORES.plannedWorkouts, { keyPath: "id" });
-    planned.createIndex("planId", "planId", { unique: false });
-    planned.createIndex("phaseId", "phaseId", { unique: false });
-    planned.createIndex("semana", "semana", { unique: false });
-    planned.createIndex("dataPlanejada", "dataPlanejada", { unique: false });
-    planned.createIndex("status", "status", { unique: false });
+  const phases = db.createObjectStore(STORES.phases, { keyPath: "id" });
+  phases.createIndex("planId", "planId", { unique: false });
+  phases.createIndex("numero", "numero", { unique: false });
 
-    const completed = db.createObjectStore(STORES.completedWorkouts, { keyPath: "id" });
-    // NÃO é unique: plannedWorkoutId pode ser null (treino avulso) para vários
-    // registros. A unicidade por plannedWorkoutId é garantida no repository.
-    completed.createIndex("plannedWorkoutId", "plannedWorkoutId", { unique: false });
-    completed.createIndex("data", "data", { unique: false });
+  const planned = db.createObjectStore(STORES.plannedWorkouts, { keyPath: "id" });
+  planned.createIndex("planId", "planId", { unique: false });
+  planned.createIndex("phaseId", "phaseId", { unique: false });
+  planned.createIndex("semana", "semana", { unique: false });
+  planned.createIndex("dataPlanejada", "dataPlanejada", { unique: false });
+  planned.createIndex("status", "status", { unique: false });
 
-    const discomforts = db.createObjectStore(STORES.discomforts, { keyPath: "id" });
-    discomforts.createIndex("completedWorkoutId", "completedWorkoutId", { unique: false });
-    discomforts.createIndex("data", "data", { unique: false });
-    discomforts.createIndex("regiao", "regiao", { unique: false });
+  const completed = db.createObjectStore(STORES.completedWorkouts, { keyPath: "id" });
+  // NÃO é unique: plannedWorkoutId pode ser null (treino avulso) para vários
+  // registros. A unicidade por plannedWorkoutId é garantida no repository.
+  completed.createIndex("plannedWorkoutId", "plannedWorkoutId", { unique: false });
+  completed.createIndex("data", "data", { unique: false });
 
-    db.createObjectStore(STORES.settings, { keyPath: "chave" });
-  }
+  const discomforts = db.createObjectStore(STORES.discomforts, { keyPath: "id" });
+  discomforts.createIndex("completedWorkoutId", "completedWorkoutId", { unique: false });
+  discomforts.createIndex("data", "data", { unique: false });
+  discomforts.createIndex("regiao", "regiao", { unique: false });
+
+  db.createObjectStore(STORES.settings, { keyPath: "chave" });
+}
+
+/** v2: stores do hub. Só cria stores novos; os seis da v1 ficam intactos. */
+export function migrarPara2(db) {
+  // Semana-padrão: um item por (dia, período, atividade). Soft-delete via `removido`.
+  const agenda = db.createObjectStore(STORES.weeklySchedule, { keyPath: "id" });
+  agenda.createIndex("diaSemana", "diaSemana", { unique: false });
+
+  // Check de musculação/karatê. Unicidade (data, scheduleItemId) garantida no repository.
+  const sessoes = db.createObjectStore(STORES.sessionLogs, { keyPath: "id" });
+  sessoes.createIndex("data", "data", { unique: false });
+  sessoes.createIndex("scheduleItemId", "scheduleItemId", { unique: false });
+
+  // Refeições do plano e proteína extra.
+  const comida = db.createObjectStore(STORES.foodLogs, { keyPath: "id" });
+  comida.createIndex("data", "data", { unique: false });
+
+  // Pesagens (balança) e InBody.
+  const corpo = db.createObjectStore(STORES.bodyMeasurements, { keyPath: "id" });
+  corpo.createIndex("data", "data", { unique: false });
+  corpo.createIndex("tipo", "tipo", { unique: false });
+
+  // Um registro por treino importado do Gravl (as séries vão dentro).
+  const gravl = db.createObjectStore(STORES.gravlWorkouts, { keyPath: "id" });
+  gravl.createIndex("chave", "chave", { unique: true });
+  gravl.createIndex("data", "data", { unique: false });
 }
 
 /**

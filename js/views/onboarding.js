@@ -2,6 +2,7 @@
 // semeia o plano e entrega o controle ao app.
 
 import * as seed from "../data/seed.js";
+import { listarAgendaOrdenada } from "../services/agenda.js";
 import { hoje, diaDaSemana, somarDias } from "../services/dates.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
 
@@ -18,9 +19,11 @@ function proximaSegunda() {
 }
 
 export async function renderOnboarding(container, onDone) {
-  container.appendChild(tituloVista("Configurar plano"));
+  container.appendChild(tituloVista("Configurar plano de corrida"));
 
-  const selecionados = new Set([1, 3, 5]); // seg/qua/sex por padrão
+  // Padrão: os dias de corrida da agenda semanal (2 ou 3); senão seg/qua/sex.
+  const diasCorridaAgenda = [...new Set((await listarAgendaOrdenada()).filter((i) => i.tipo === "corrida").map((i) => i.diaSemana))];
+  const selecionados = new Set(diasCorridaAgenda.length >= 2 && diasCorridaAgenda.length <= 3 ? diasCorridaAgenda : [1, 3, 5]);
 
   const inputData = el("input", { type: "date", id: "dataInicio", value: proximaSegunda() });
 
@@ -55,7 +58,7 @@ export async function renderOnboarding(container, onDone) {
 
   const erro = el("p", { class: "erro" });
 
-  const botaoCriar = botao("Criar meu plano", {
+  const botaoCriar = botao("Criar plano de corrida", {
     variante: "primary", bloco: true, grande: true,
     onClick: async () => {
       erro.textContent = "";
@@ -79,7 +82,7 @@ export async function renderOnboarding(container, onDone) {
         onDone();
       } catch (e) {
         botaoCriar.disabled = false;
-        botaoCriar.textContent = "Criar meu plano";
+        botaoCriar.textContent = "Criar plano de corrida";
         erro.textContent = "Não foi possível criar o plano: " + (e && e.message);
       }
     },
@@ -88,7 +91,7 @@ export async function renderOnboarding(container, onDone) {
   container.appendChild(
     card([
       el("p", { class: "eyebrow", text: "Plano de Retorno à Corrida — 22 semanas" }),
-      el("p", { class: "sub", text: "São 3 sessões por semana. Escolha quando começar e em quais dias você treina. As datas dos 66 treinos são calculadas a partir disso." }),
+      el("p", { class: "sub", text: "O plano foi escrito para 3 sessões por semana (66 treinos). Escolha quando começar e em quais dias você corre: as datas são calculadas a partir disso." }),
 
       el("div", { class: "campo", style: { marginTop: "16px" } }, [
         el("label", { for: "dataInicio", text: "Início da semana 1" }),
@@ -99,7 +102,7 @@ export async function renderOnboarding(container, onDone) {
       el("div", { class: "campo" }, [
         el("label", { text: "Dias de treino (2 ou 3)" }),
         el("div", { class: "chips" }, chips),
-        el("p", { class: "ajuda", text: "Com 2 dias, o app corta a sessão do meio (e mantém a longa e a de qualidade nas fases finais)." }),
+        el("p", { class: "ajuda", text: "Com 2 dias (44 treinos), o app segue a regra do próprio plano: nas fases 1 e 2 sai a sessão B; nas fases 3 e 4 sai a A, mantendo a de qualidade e a rodagem longa. A longa fica sempre no dia mais tarde da semana." }),
         avisoEspaco,
       ]),
 

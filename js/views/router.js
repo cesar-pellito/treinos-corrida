@@ -1,29 +1,36 @@
 // router.js — navegação por hash com suporte a parâmetros.
 //   #/hoje                 -> aba
+//   #/treinos/<segmento>   -> aba Treinos (semana | corrida | evolucao | historico)
 //   #/registrar/<planId>   -> formulário (registro de um treino planejado)
 //   #/avulso               -> formulário (treino fora do plano)
 //   #/editar/<compId>      -> formulário (edição de treino realizado)
 //   #/detalhe/<compId>     -> planejado × realizado
+//   #/agenda               -> editor da semana-padrão
+//   #/metas                -> editor de metas
 //   #/ajuda                -> tela de ajuda
+//   #/calendario, #/evolucao, #/historico -> aliases (rotas antigas) para Treinos
 //
 // Renderização atômica por token (evita render duplicado em gatilhos próximos).
 
 import { renderHoje } from "./today.js";
-import { renderCalendario } from "./calendar.js";
-import { renderEvolucao } from "./evolution.js";
-import { renderHistorico } from "./history.js";
+import { renderTreinos } from "./treinos.js";
 import { renderAjustes } from "./settings.js";
 import { renderAjuda } from "./help.js";
 import { renderFormulario } from "./workout-form.js";
 import { renderDetalhe } from "./workout-detail.js";
+import { renderEditorAgenda } from "./agenda-editor.js";
+import { renderEditorMetas } from "./metas-editor.js";
 import { el, limpar } from "./components/ui.js";
 
-const ABAS = { hoje: renderHoje, calendario: renderCalendario, evolucao: renderEvolucao, historico: renderHistorico, ajustes: renderAjustes };
+const ABAS = { hoje: renderHoje, treinos: renderTreinos, ajustes: renderAjustes };
+const ALIASES = { calendario: ["treinos", "corrida"], evolucao: ["treinos", "evolucao"], historico: ["treinos", "historico"] };
 const CHEIAS = {
   registrar: (c, p) => renderFormulario(c, { modo: "registro", id: p }),
   avulso: (c) => renderFormulario(c, { modo: "avulso" }),
   editar: (c, p) => renderFormulario(c, { modo: "edicao", id: p }),
   detalhe: (c, p) => renderDetalhe(c, { id: p }),
+  agenda: (c) => renderEditorAgenda(c),
+  metas: (c) => renderEditorMetas(c),
   ajuda: (c) => renderAjuda(c),
 };
 
@@ -32,7 +39,10 @@ let token = 0;
 function parseHash() {
   const bruto = (location.hash || "#/hoje").replace(/^#\//, "");
   const partes = bruto.split("/");
-  return { rota: partes[0] || "hoje", param: partes[1] ? decodeURIComponent(partes[1]) : null };
+  let rota = partes[0] || "hoje";
+  let param = partes[1] ? decodeURIComponent(partes[1]) : null;
+  if (ALIASES[rota]) [rota, param] = ALIASES[rota];
+  return { rota, param };
 }
 
 function marcarAba(rota) {
@@ -42,7 +52,7 @@ function marcarAba(rota) {
   });
 }
 
-async function montar() {
+async function montar({ manterScroll = false } = {}) {
   const { rota, param } = parseHash();
   const meu = ++token;
   const ehAba = !!ABAS[rota];
@@ -52,6 +62,7 @@ async function montar() {
   const sheet = document.querySelector(".sheet-overlay");
   if (sheet) sheet.remove();
 
+  const scrollAntes = window.scrollY;
   const render = ABAS[rota] || CHEIAS[rota] || ABAS.hoje;
   const temp = document.createElement("div");
   try {
@@ -65,16 +76,25 @@ async function montar() {
   const container = document.getElementById("app");
   limpar(container);
   while (temp.firstChild) container.appendChild(temp.firstChild);
-  container.scrollTop = 0;
-  window.scrollTo(0, 0);
+  if (manterScroll) {
+    window.scrollTo(0, scrollAntes);
+  } else {
+    container.scrollTop = 0;
+    window.scrollTo(0, 0);
+  }
 }
 
 export function iniciarRouter() {
   // App ativo: revela a barra de navegação (escondida durante o onboarding).
   document.body.classList.remove("sem-nav");
-  window.addEventListener("hashchange", montar);
+  window.addEventListener("hashchange", () => montar());
   if (!location.hash) location.hash = "#/hoje";
   else montar();
+}
+
+/** Redesenha a tela atual sem voltar ao topo (após marcar um item, por exemplo). */
+export function recarregar() {
+  return montar({ manterScroll: true });
 }
 
 export function irPara(rota) {

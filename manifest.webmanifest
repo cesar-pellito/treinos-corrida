@@ -1,7 +1,7 @@
 {
   "name": "PaceUp",
   "short_name": "PaceUp",
-  "description": "Acompanhamento pessoal do plano de retorno à corrida — offline, local-first.",
+  "description": "Hub pessoal de treinos, nutrição e corpo — offline, local-first.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

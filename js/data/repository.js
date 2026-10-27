@@ -13,8 +13,12 @@
 // Campos de sync: toda escrita local carimba atualizadoEm e _pendingSync=true.
 // A sincronização com Google Sheets (Etapa 7) limpa _pendingSync via marcarSincronizados.
 
-import { STORES, comTransacao, req, abrirDB } from "./db.js";
+import { STORES, TODOS_STORES, comTransacao, req, abrirDB } from "./db.js";
 import { agoraISO } from "../services/dates.js";
+
+// Aviso de abertura bloqueada (upgrade de versão com outra aba aberta) — o
+// bootstrap registra quem mostra a mensagem; ninguém acima importa db.js.
+export { definirAoBloquear } from "./db.js";
 
 // ---------------------------------------------------------------------------
 // Utilidades internas
@@ -310,16 +314,142 @@ export async function obterConfigs() {
 }
 
 // ---------------------------------------------------------------------------
-// Backup / sync
+// Hub (v2) — utilidades comuns aos stores novos
+//
+// Exclusão é LÓGICA (tombstone): `removido: true` + atualizadoEm novo. O sync e o
+// backup são merge last-write-wins sem DELETE; um registro apagado de verdade
+// voltaria do Sheets na próxima sincronização. As listagens filtram removidos.
 // ---------------------------------------------------------------------------
-const TODOS_STORES = [
-  STORES.plans,
-  STORES.phases,
-  STORES.plannedWorkouts,
-  STORES.completedWorkouts,
-  STORES.discomforts,
-  STORES.settings,
-];
+const ativo = (r) => r && !r.removido;
+
+async function listarPorData(store, de, ate) {
+  return comTransacao(store, "readonly", (tx) =>
+    req(tx.objectStore(store).index("data").getAll(globalThis.IDBKeyRange.bound(de, ate)))
+  );
+}
+
+async function removerLogico(store, id) {
+  return comTransacao(store, "readwrite", async (tx) => {
+    const atual = await getReq(tx, store, id);
+    if (!atual) throw new Error(`Registro não encontrado: ${id}`);
+    const carimbado = carimbar({ ...atual, removido: true }, { novo: false });
+    tx.objectStore(store).put(carimbado);
+    return carimbado;
+  });
+}
+
+/**
+ * Seed idempotente: insere só os registros cujo `id` ainda não existe. Nunca
+ * sobrescreve — um item que você editou ou removeu (tombstone) continua como está.
+ * Os seeds usam UUIDs fixos, então reinstalar ou sincronizar outro aparelho
+ * não duplica nada.
+ */
+export async function semearRegistros(store, registros) {
+  return comTransacao(store, "readwrite", async (tx) => {
+    let inseridos = 0;
+    for (const r of registros) {
+      if (await getReq(tx, store, r.id)) continue;
+      tx.objectStore(store).put(carimbar(r, { novo: true }));
+      inseridos++;
+    }
+    return inseridos;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// weeklySchedule — a semana-padrão (configurável)
+// ---------------------------------------------------------------------------
+export const TIPOS_AGENDA = ["musculacao", "karate", "corrida"];
+export const PERIODOS = ["manha", "noite"];
+
+export async function salvarItemAgenda(item) {
+  if (!TIPOS_AGENDA.includes(item.tipo)) throw new Error(`Tipo de atividade inválido: ${item.tipo}`);
+  if (!PERIODOS.includes(item.periodo)) throw new Error(`Período inválido: ${item.periodo}`);
+  if (!Number.isInteger(item.diaSemana) || item.diaSemana < 0 || item.diaSemana > 6) {
+    throw new Error(`Dia da semana inválido: ${item.diaSemana}`);
+  }
+  const r = { rotulo: null, opcional: false, ordem: 0, ...item, id: item.id || gerarId() };
+  return put(STORES.weeklySchedule, r, { novo: !item.criadoEm });
+}
+export async function listarAgenda() {
+  return (await listar(STORES.weeklySchedule)).filter(ativo);
+}
+export async function removerItemAgenda(id) {
+  return removerLogico(STORES.weeklySchedule, id);
+}
+
+// ---------------------------------------------------------------------------
+// sessionLogs — check de musculação/karatê (a corrida usa completedWorkouts)
+// ---------------------------------------------------------------------------
+export const STATUS_SESSAO = ["feito", "nao_feito", "pulado"];
+
+/**
+ * Marca uma sessão. UM registro por (data, scheduleItemId): se já existe —
+ * inclusive removido — ele é EDITADO e reativado, nunca duplicado. Sem
+ * scheduleItemId (sessão fora da agenda) sempre cria um registro novo.
+ * Campos ausentes (undefined) em `dados` mantêm o valor atual.
+ * Quem chama passa o snapshot do item (tipo, rotulo, periodo, opcional): editar
+ * a agenda depois não reescreve o histórico.
+ */
+export async function registrarSessao(dados) {
+  if (!dados.data) throw new Error("Sessão sem data.");
+  if (!STATUS_SESSAO.includes(dados.status)) throw new Error(`Status inválido: ${dados.status}`);
+  const itemId = dados.scheduleItemId ?? null;
+  return comTransacao(STORES.sessionLogs, "readwrite", async (tx) => {
+    let existente = null;
+    if (itemId != null) {
+      const doItem = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", itemId);
+      existente = doItem.find((s) => s.data === dados.data) || null;
+    }
+    const base = existente
+      ? { ...existente }
+      : {
+          id: gerarId(), scheduleItemId: itemId, origem: "manual",
+          duracaoMin: null, rpe: null, gravlWorkoutId: null, observacoes: null,
+        };
+    for (const [k, v] of Object.entries(dados)) {
+      if (v !== undefined && k !== "id" && k !== "criadoEm") base[k] = v;
+    }
+    base.removido = false;
+    const carimbado = carimbar(base, { novo: !existente });
+    tx.objectStore(STORES.sessionLogs).put(carimbado);
+    return carimbado;
+  });
+}
+/** Edita campos de uma sessão existente pelo ID (duração, RPE, rótulo…). */
+export async function atualizarSessao(id, alteracoes) {
+  return comTransacao(STORES.sessionLogs, "readwrite", async (tx) => {
+    const atual = await getReq(tx, STORES.sessionLogs, id);
+    if (!atual) throw new Error(`Sessão não encontrada: ${id}`);
+    if (alteracoes.status !== undefined && !STATUS_SESSAO.includes(alteracoes.status)) {
+      throw new Error(`Status inválido: ${alteracoes.status}`);
+    }
+    const proibidos = ["id", "criadoEm", "scheduleItemId", "data"];
+    const merged = { ...atual };
+    for (const [k, v] of Object.entries(alteracoes)) {
+      if (v !== undefined && !proibidos.includes(k)) merged[k] = v;
+    }
+    const carimbado = carimbar(merged, { novo: false });
+    tx.objectStore(STORES.sessionLogs).put(carimbado);
+    return carimbado;
+  });
+}
+export async function obterSessao(id) {
+  return obter(STORES.sessionLogs, id);
+}
+/** Sessões ativas, por data crescente. `de`/`ate` inclusivos (ISO). */
+export async function listarSessoes({ de, ate } = {}) {
+  const todas = de && ate ? await listarPorData(STORES.sessionLogs, de, ate) : await listar(STORES.sessionLogs);
+  return todas.filter(ativo).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+}
+/** Desmarcar: tombstone (o próximo toque no mesmo item/dia reativa o registro). */
+export async function removerSessao(id) {
+  return removerLogico(STORES.sessionLogs, id);
+}
+
+// ---------------------------------------------------------------------------
+// Backup / sync — TODOS_STORES vem do db.js (inclui os stores do hub)
+// ---------------------------------------------------------------------------
 
 /** Dump completo de todos os stores, para exportação JSON. */
 export async function exportarTudo() {

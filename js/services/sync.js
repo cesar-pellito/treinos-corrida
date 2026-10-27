@@ -46,6 +46,19 @@ export async function testarConexao() {
   return data;
 }
 
+/** Filtra os pendentes enviados aos stores que o servidor devolveu em `records`. */
+export function recebidosPeloServidor(pend, records) {
+  const conhecidos = new Set(Object.keys(records || {}));
+  const porStore = {};
+  let total = 0;
+  for (const [store, itens] of Object.entries(pend)) {
+    if (!conhecidos.has(store)) continue;
+    porStore[store] = itens;
+    total += itens.length;
+  }
+  return { porStore, total };
+}
+
 /**
  * Executa uma rodada de sincronização.
  * @returns {{enviados:number, pull:{criados,atualizados,ignorados}, serverTime:string}}
@@ -64,14 +77,18 @@ export async function sincronizar() {
   // 3) aplica o que veio do servidor (last-write-wins por atualizadoEm)
   const pull = data.records ? await repo.importarBackup({ stores: data.records }) : { criados: 0, atualizados: 0, ignorados: 0 };
 
-  // 4) marca como sincronizado o que enviamos
-  await repo.marcarSincronizados(pend);
+  // 4) marca como sincronizado SÓ o que o servidor conhece. O servidor devolve
+  //    `records` com uma chave por store que ele processou; um Codigo.gs antigo
+  //    não conhece os stores do hub e os ignora em silêncio — esses registros
+  //    ficam pendentes (não se perdem) até o Apps Script ser republicado.
+  const aceitos = recebidosPeloServidor(pend, data.records);
+  await repo.marcarSincronizados(aceitos.porStore);
 
   // 5) avança o cursor
   await repo.definirConfig("syncSince", data.serverTime || "");
   await repo.definirConfig("ultimoSync", agoraISO());
 
-  return { enviados, pull, serverTime: data.serverTime };
+  return { enviados, naoAceitos: enviados - aceitos.total, pull, serverTime: data.serverTime };
 }
 
 /** Última sincronização (ISO) ou null. */

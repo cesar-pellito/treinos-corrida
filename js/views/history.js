@@ -8,8 +8,8 @@ import { rotuloTipo, TIPOS } from "../services/dominio.js";
 import { diffDias, deISODate, nomeDiaSemana } from "../services/dates.js";
 import { el, tituloVista, estadoVazio } from "./components/ui.js";
 
-export async function renderHistorico(container) {
-  container.appendChild(tituloVista("Histórico"));
+export async function renderHistorico(container, _param, { embutido = false } = {}) {
+  if (!embutido) container.appendChild(tituloVista("Histórico"));
   const plan = await repo.planoAtivo();
   const [completed, planned] = await Promise.all([
     plan ? repo.listarCompleted({ planId: plan.id }) : Promise.resolve([]),

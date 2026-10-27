@@ -2,6 +2,7 @@
 // controlada), decide entre onboarding e app, e inicia o router.
 
 import * as repo from "./data/repository.js";
+import { semearHub } from "./data/seed.js";
 import { iniciarRouter } from "./views/router.js";
 import { renderOnboarding } from "./views/onboarding.js";
 import { carregarEAplicarTema } from "./services/theme.js";
@@ -64,8 +65,14 @@ async function registrarServiceWorker() {
 // ---------------------------------------------------------------------------
 async function iniciar() {
   const container = document.getElementById("app");
+  // Atualização do banco esperando outra aba (com a versão antiga) fechar.
+  repo.definirAoBloquear(() => {
+    limpar(container);
+    container.appendChild(el("p", { class: "sub", text: "Atualizando os dados do app… Se demorar, feche as outras abas ou janelas do PaceUp." }));
+  });
   try {
     await carregarEAplicarTema();
+    await semearHub(); // agenda-padrão etc.; só insere o que ainda não existe
     const plano = await repo.planoAtivo();
     if (!plano) {
       limpar(container);
