@@ -47,60 +47,98 @@ export function snapshotItem(item) {
   return { tipo: item.tipo, rotulo: item.rotulo, periodo: item.periodo, opcional: !!item.opcional };
 }
 
+// Treinos fora da agenda ficam depois dos previstos no mesmo período.
+const ORDEM_AVULSA = 1000;
+
 /**
- * Log feito em OUTRO dia da semana que vale por este item ("remanejado"): o
- * item não tem registro próprio no seu dia, e existe uma sessão feita, com o
- * scheduleItemId dele, em outra data. `sessoes` deve cobrir só a semana.
+ * Movimentos válidos da semana, por item. Ignora o movimento cujo item mudou de
+ * dia na agenda depois de movido (a origem já não é o dia do item).
  */
-function remanejamentoDe(item, sessoes) {
-  const proprio = sessoes.some((s) => s.scheduleItemId === item.id && diaDaSemana(s.data) === item.diaSemana);
-  if (proprio) return null;
-  return sessoes.find((s) => s.scheduleItemId === item.id && s.status === "feito" && diaDaSemana(s.data) !== item.diaSemana) || null;
+function movimentosPorItem(agenda, movimentos) {
+  const porId = new Map(agenda.map((i) => [i.id, i]));
+  const r = new Map();
+  for (const m of movimentos) {
+    const item = porId.get(m.scheduleItemId);
+    if (item && diaDaSemana(m.dataOrigem) === item.diaSemana) r.set(item.id, m);
+  }
+  return r;
+}
+
+/** A sessão `s` é o registro da própria ocorrência do item na semana (no dia previsto ou para onde foi movido)? */
+function daOcorrencia(s, item, mov) {
+  return mov ? s.data === mov.data : diaDaSemana(s.data) === item.diaSemana;
 }
 
 /**
- * Monta as entradas de um dia (puro). `sessoes` = as da SEMANA (para enxergar
- * remanejamentos). Tipos de entrada:
- *   {tipo:'sessao', item, log, remanejado}  item da agenda (musculação/karatê) + registro
- *                                           do dia; `remanejado` = log feito em outro dia
+ * Log feito em OUTRO dia da semana que vale por este item ("remanejado"): o
+ * item não tem registro próprio na sua ocorrência, e existe uma sessão feita,
+ * com o scheduleItemId dele, em outra data. `sessoes` deve cobrir só a semana.
+ */
+function remanejamentoDe(item, sessoes, mov = null) {
+  const doItem = sessoes.filter((s) => s.scheduleItemId === item.id);
+  if (doItem.some((s) => daOcorrencia(s, item, mov))) return null;
+  return doItem.find((s) => s.status === "feito") || null;
+}
+
+/**
+ * Monta as entradas de um dia (puro). `sessoes` e `movimentos` = os da SEMANA
+ * (para enxergar remanejamentos e itens movidos). Tipos de entrada:
+ *   {tipo:'sessao', item, log, remanejado, movimento}
+ *        item da agenda (musculação/karatê) + registro do dia; `remanejado` = log
+ *        feito em outro dia; `movimento` = o item foi arrastado para cá (ou de
+ *        período) nesta semana
  *   {tipo:'corrida', planned, periodo}      treino do plano de corrida naquela data
  *   {tipo:'avulsa', log, item?, credita}    sessão fora da agenda; `credita` = vale pelo
  *                                           `item` de outro dia (não conta como extra)
+ * Toda entrada traz `periodo` e `ordem` (posição dentro do período).
  */
-export function montarDia({ agenda, sessoes, corridas, data }) {
+export function montarDia({ agenda, sessoes, corridas, movimentos = [], data }) {
   const dow = diaDaSemana(data);
-  const itens = ordenarAgenda(agenda.filter((i) => i.diaSemana === dow));
+  const movs = movimentosPorItem(agenda, movimentos);
   const doDia = sessoes.filter((s) => s.data === data);
   const porItem = new Map(doDia.filter((s) => s.scheduleItemId).map((s) => [s.scheduleItemId, s]));
-  const periodoCorrida = (itens.find((i) => i.tipo === "corrida") || {}).periodo || "manha";
+  const itensDoDia = ordenarAgenda(agenda.filter((i) => i.diaSemana === dow));
+  const periodoCorrida = (itensDoDia.find((i) => i.tipo === "corrida") || {}).periodo || "manha";
   const agendaPorId = new Map(agenda.map((i) => [i.id, i]));
 
-  const entradas = [];
-  for (const item of itens) {
+  // Ocorrências de hoje: itens do dia que não saíram + itens movidos para cá.
+  const ocorrencias = [];
+  for (const item of ordenarAgenda(agenda)) {
     if (item.tipo === "corrida") continue;
+    const mov = movs.get(item.id) || null;
+    if (mov ? mov.data === data : item.diaSemana === dow) ocorrencias.push({ item, mov });
+  }
+
+  const entradas = [];
+  for (const { item, mov } of ocorrencias) {
     const log = porItem.get(item.id) || null;
-    entradas.push({ tipo: "sessao", periodo: item.periodo, item, log, remanejado: log ? null : remanejamentoDe(item, sessoes) });
+    entradas.push({
+      tipo: "sessao", item, log, movimento: mov,
+      periodo: mov ? mov.periodo : item.periodo,
+      ordem: mov ? mov.ordem : item.ordem || 0,
+      remanejado: log ? null : remanejamentoDe(item, sessoes, mov),
+    });
   }
   for (const w of corridas.filter((c) => c.dataPlanejada === data)) {
-    entradas.push({ tipo: "corrida", periodo: periodoCorrida, planned: w });
+    entradas.push({ tipo: "corrida", periodo: w.periodo || periodoCorrida, ordem: w.ordemDia ?? 0, planned: w });
   }
-  const idsDoDia = new Set(itens.map((i) => i.id));
+  const idsDoDia = new Set(ocorrencias.map((o) => o.item.id));
   for (const s of doDia) {
     if (!s.scheduleItemId || !idsDoDia.has(s.scheduleItemId)) {
       const item = s.scheduleItemId ? agendaPorId.get(s.scheduleItemId) || null : null;
-      const credita = !!(item && s.status === "feito" && remanejamentoDe(item, sessoes) === s);
-      entradas.push({ tipo: "avulsa", periodo: s.periodo || "manha", log: s, item, credita });
+      const credita = !!(item && s.status === "feito" && remanejamentoDe(item, sessoes, movs.get(item.id)) === s);
+      entradas.push({ tipo: "avulsa", periodo: s.periodo || "manha", ordem: ORDEM_AVULSA, log: s, item, credita });
     }
   }
-  // estável: manhã antes da noite, mantendo a ordem de inserção dentro do período
+  // estável: manhã antes da noite; no período, pela ordem e depois pela inserção
   return entradas
     .map((e, i) => ({ e, i }))
-    .sort((a, b) => ORDEM_PERIODO[a.e.periodo] - ORDEM_PERIODO[b.e.periodo] || a.i - b.i)
+    .sort((a, b) => ORDEM_PERIODO[a.e.periodo] - ORDEM_PERIODO[b.e.periodo] || a.e.ordem - b.e.ordem || a.i - b.i)
     .map((x) => x.e);
 }
 
 /** Resumo de uma semana (puro). `inicio` é o primeiro dia da semana (ISO). */
-export function resumirSemana({ agenda, sessoes, corridas, inicio, metas }) {
+export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], inicio, metas }) {
   const r = {
     inicio, fim: somarDias(inicio, 6), dias: [],
     previstos: 0, feitos: 0, pulados: 0, naoFeitos: 0, extras: 0,
@@ -108,7 +146,7 @@ export function resumirSemana({ agenda, sessoes, corridas, inicio, metas }) {
   };
   for (let i = 0; i < 7; i++) {
     const data = somarDias(inicio, i);
-    const entradas = montarDia({ agenda, sessoes, corridas, data });
+    const entradas = montarDia({ agenda, sessoes, corridas, movimentos, data });
     r.dias.push({ data, entradas });
     for (const e of entradas) {
       if (e.tipo === "sessao") {
@@ -136,16 +174,17 @@ export function resumirSemana({ agenda, sessoes, corridas, inicio, metas }) {
 }
 
 async function carregarBase(de, ate) {
-  const [agenda, sessoes, plan, metas] = await Promise.all([
+  const [agenda, sessoes, movimentos, plan, metas] = await Promise.all([
     repo.listarAgenda(),
     repo.listarSessoes({ de, ate }),
+    repo.listarMovimentos({ de, ate }),
     repo.planoAtivo(),
     obterMetas(),
   ]);
   const corridas = plan
     ? (await repo.listarPlanned({ planId: plan.id })).filter((w) => w.dataPlanejada >= de && w.dataPlanejada <= ate)
     : [];
-  return { agenda, sessoes, corridas, metas };
+  return { agenda, sessoes, movimentos, corridas, metas };
 }
 
 export async function primeiroDiaSemana() {
@@ -242,6 +281,40 @@ export function editarSessao(log, alteracoes) {
 /** Remove o registro (tombstone). */
 export function desmarcarSessao(log) {
   return repo.removerSessao(log.id);
+}
+
+/**
+ * Dá para arrastar? Fica onde está: corrida já registrada, item já feito em
+ * outro dia (remanejado) e treino fora da agenda.
+ */
+export function podeMover(entrada) {
+  if (entrada.tipo === "sessao") return !entrada.remanejado;
+  if (entrada.tipo === "corrida") return entrada.planned.status !== "concluido";
+  return false;
+}
+
+/**
+ * Arrastar na semana: leva a entrada exibida em `dataAtual` para `destino`
+ * {data, periodo, ordem}, na mesma semana. Item da agenda => movimento só desta
+ * semana (a agenda-padrão não muda); corrida => reposiciona o treino do plano
+ * (reagenda se mudar o dia).
+ */
+export function moverEntrada(entrada, dataAtual, { data, periodo, ordem }) {
+  if (entrada.tipo === "corrida") return repo.reposicionarPlanned(entrada.planned.id, { data, periodo, ordemDia: ordem });
+  if (entrada.tipo !== "sessao") throw new Error("Este treino não pode ser movido.");
+  const mov = entrada.movimento;
+  return repo.moverOcorrencia({
+    scheduleItemId: entrada.item.id, dataOrigem: mov ? mov.dataOrigem : dataAtual, dataAtual, data, periodo, ordem,
+  });
+}
+
+/** Desfaz o movimento da semana: o item volta ao dia e ao período da agenda. */
+export function voltarAoPrevisto(entrada) {
+  const mov = entrada.movimento;
+  return repo.moverOcorrencia({
+    scheduleItemId: entrada.item.id, dataOrigem: mov.dataOrigem, dataAtual: mov.data,
+    data: mov.dataOrigem, periodo: entrada.item.periodo, voltar: true,
+  });
 }
 
 /** Corrida: ✕ marca "não realizado"; tocar de novo devolve ao estado pendente. */

@@ -7,11 +7,12 @@
 // exportado em Ajustes (via repository.exportarTudo).
 
 export const DB_NOME = "treinos-corrida";
-export const DB_VERSAO = 2;
+export const DB_VERSAO = 3;
 
 // Nomes dos object stores.
 //   v1: os seis da corrida.
 //   v2: o hub (agenda semanal, sessões, alimentação).
+//   v3: itens da agenda movidos de dia/período numa semana específica.
 export const STORES = {
   plans: "plans",
   phases: "phases",
@@ -22,6 +23,7 @@ export const STORES = {
   weeklySchedule: "weeklySchedule",
   sessionLogs: "sessionLogs",
   foodLogs: "foodLogs",
+  scheduleMoves: "scheduleMoves",
 };
 
 // Todos os stores, na ordem de criação. Todos carimbam atualizadoEm (merge
@@ -86,6 +88,7 @@ export function abrirDB() {
 function criarSchema(db, versaoAntiga) {
   if (versaoAntiga < 1) migrarPara1(db);
   if (versaoAntiga < 2) migrarPara2(db);
+  if (versaoAntiga < 3) migrarPara3(db);
 }
 
 /** v1: os seis stores da corrida. Exportada para o teste de migração v1→v2. */
@@ -132,6 +135,15 @@ export function migrarPara2(db) {
   // Refeições do plano e proteína extra.
   const comida = db.createObjectStore(STORES.foodLogs, { keyPath: "id" });
   comida.createIndex("data", "data", { unique: false });
+}
+
+/** v3: item da agenda movido de dia/período numa semana. Só cria o store novo. */
+export function migrarPara3(db) {
+  // Um registro por (scheduleItemId, dataOrigem), garantido no repository.
+  // `data` é o destino, sempre na mesma semana de `dataOrigem`.
+  const mov = db.createObjectStore(STORES.scheduleMoves, { keyPath: "id" });
+  mov.createIndex("data", "data", { unique: false });
+  mov.createIndex("scheduleItemId", "scheduleItemId", { unique: false });
 }
 
 /**

@@ -60,7 +60,7 @@ js/
 
 ## 2. Modelo de dados
 
-IndexedDB `treinos-corrida`, **versão 2**. A migração só adiciona stores (`if (versaoAntiga < 2)` em `db.js`); os seis stores da v1 não são tocados.
+IndexedDB `treinos-corrida`, **versão 3**. Cada migração só adiciona stores (`if (versaoAntiga < N)` em `db.js`); os stores existentes não são tocados.
 
 **Corrida (v1):** `plans`, `phases`, `plannedWorkouts`, `completedWorkouts`, `discomforts`, `settings`. Dados **planejados** e **realizados** são separados por design — registrar nunca sobrescreve o plano. A região de desconforto **fáscia plantar / calcanhar** é própria, separada de "pé", por causa do histórico de fascite plantar.
 
@@ -71,6 +71,9 @@ IndexedDB `treinos-corrida`, **versão 2**. A migração só adiciona stores (`i
 | `weeklySchedule` | a semana-padrão | `diaSemana` (0=dom…6=sáb), `periodo` (`manha`/`noite`), `tipo` (`musculacao`/`karate`/`corrida`), `rotulo`, `opcional` |
 | `sessionLogs` | check de musculação e karatê | `data`, `scheduleItemId` (null = fora da agenda), snapshot `tipo`/`rotulo`/`periodo`/`opcional`, `status` (`feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?` |
 | `foodLogs` | refeições do plano e proteína extra | `data`, `tipo` (`refeicao`/`extra`); refeição: `refeicaoId`, `varianteIndex`, `varianteNome`, `fracao` (1, ¾, ½, ¼), snapshot `macros {kcal, prot, carb, gord}`, `escolhas?` (do montar prato); extra: `proteinaG`, `descricao?` |
+| `scheduleMoves` (v3) | item da agenda arrastado para outro dia/período **numa semana** | `scheduleItemId`, `dataOrigem` (o dia previsto), `data` (destino, mesma semana), `periodo`, `ordem` (posição no período). Um por (item, `dataOrigem`) |
+
+A corrida arrastada não usa `scheduleMoves`: o próprio `plannedWorkout` é reagendado (mesmas regras de `dataOriginal`/`sequence`) e ganha `periodo` e `ordemDia` opcionais.
 
 Metas ficam em `settings`, na chave `metas` (`js/services/metas.js`): proteína mínima e máxima por dia e treinos de Lower por semana.
 
@@ -82,8 +85,8 @@ Cada registro carrega `criadoEm` e `atualizadoEm`; o import de backup usa `atual
 
 Barra inferior: **Hoje · Treinos · Nutrição · Ajustes**.
 
-- **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida.
-- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
+- **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida (tocar abre objetivo, RPE, zona, fase e a estrutura do treino).
+- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas; **segurar e arrastar** um treino o leva para outro dia ou período da mesma semana, inclusive para ficar antes ou depois de outro no mesmo período), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
 - **Nutrição** (porte do App_Dieta): *Refeições* — abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia, e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
 - **Ajustes:** Agenda semanal, Metas, preferências da corrida, `.ics`, backup e "Recomeçar o plano de corrida".
 
@@ -94,6 +97,7 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 - **Aderência:** feitos ÷ previstos. Opcional feito e treino fora da agenda contam como *extra*. "Pulado" aparece separado e não conta como feito.
 - **Lower da semana:** sessões de musculação **feitas** com rótulo começando por "Lower", em qualquer dia (inclusive fora da agenda).
 - **Remanejamento:** um "treino fora da agenda" com o mesmo rótulo de um item da semana ainda não feito (ex.: Lower B no sábado em vez de domingo) vale por aquele item: o item aparece como "Feito no sábado" e conta na aderência, e a sessão aparece como "Vale pelo treino de domingo", sem contar como extra.
+- **Treino movido (arrastar):** vale só para aquela semana; a agenda-padrão não muda. O treino continua previsto uma vez só, agora no novo dia ("Movido de segunda"). Se estava "não feito" ou "pulado", a marcação sai e ele volta a ficar pendente; se estava "feito", o registro vai junto. Tocar no nome mostra "Voltar para segunda · manhã". Não se movem: corrida já registrada, treino já feito em outro dia (remanejado) e treino fora da agenda.
 - **Proteína do dia:** soma de `macros.prot × fração` das refeições registradas mais a proteína extra. As macros vêm da tabela de **estimativas** por refeição e variante (`MACROS` em `js/data/plano-alimentar.js`), não são valores oficiais da nutricionista, e a interface sempre mostra o selo "estimativa".
 - **Bateu a meta:** proteína do dia ≥ mínimo configurado em Metas.
 - **Média semanal de proteína:** só dos dias com algum registro; dias sem registro aparecem à parte, para que esquecer de lançar não pareça dia de proteína baixa.

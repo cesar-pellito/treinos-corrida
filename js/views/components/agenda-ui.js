@@ -6,7 +6,7 @@ import { irPara, recarregar } from "../router.js";
 import {
   ROTULO_TIPO, ROTULO_PERIODO, ROTULO_STATUS, ROTULOS_SUGERIDOS,
   alternarSessao, marcarSessao, editarSessao, desmarcarSessao,
-  alternarCorridaNaoFeita, registrarSessaoAvulsa,
+  alternarCorridaNaoFeita, registrarSessaoAvulsa, voltarAoPrevisto,
 } from "../../services/agenda.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo, barraProgresso, metaItem, blocoEstrutura } from "./ui.js";
@@ -52,13 +52,21 @@ function detalhesLog(log) {
   return partes.join(" · ");
 }
 
-function linha({ periodo, titulo, sub, status, onTitulo, controles, extra }) {
+/** "Movido de segunda" / "Movido da manhã"; null se só mudou a posição no período. */
+function textoMovido(mov, item, data) {
+  if (!mov) return null;
+  if (mov.dataOrigem !== data) return `Movido de ${nomeDiaSemana(mov.dataOrigem)}`;
+  if (mov.periodo !== item.periodo) return `Movido da ${ROTULO_PERIODO[item.periodo].toLowerCase()}`;
+  return null;
+}
+
+function linha({ periodo, titulo, sub, status, onTitulo, controles, extra, movido }) {
   const esq = el("button", { type: "button", class: "agenda-linha__info", onClick: onTitulo }, [
     el("span", { class: "agenda-linha__periodo", text: ROTULO_PERIODO[periodo] || "" }),
     el("span", { class: "agenda-linha__titulo", text: titulo }),
     sub ? el("span", { class: "agenda-linha__sub", text: sub }) : null,
   ]);
-  return el("div", { class: `agenda-linha${status ? " agenda-linha--" + status : ""}` }, [
+  return el("div", { class: `agenda-linha${status ? " agenda-linha--" + status : ""}${movido ? " agenda-linha--movido" : ""}` }, [
     el("div", { class: "agenda-linha__topo" }, [esq, controles]),
     extra || null,
   ]);
@@ -75,15 +83,22 @@ export function linhaEntrada(entrada, data, { resumoCorrida } = {}) {
   return linhaAvulsa(entrada);
 }
 
-function linhaSessao({ item, log, periodo, remanejado }, data) {
+function linhaSessao(entrada, data) {
+  const { item, log, periodo, remanejado, movimento } = entrada;
   const atual = log ? log.status : null;
   const acao = (st) => () => agir(() => alternarSessao(item, data, st, log));
+  const movido = textoMovido(movimento, item, data);
+  const sub = [
+    movido,
+    remanejado ? `Feito ${naDia(nomeDiaSemana(remanejado.data))} (${ddmm(remanejado.data)})` : detalhesLog(log),
+  ].filter(Boolean).join(" · ");
   return linha({
     periodo,
     titulo: tituloSessao(item.tipo, item.rotulo) + (item.opcional ? " (opcional)" : ""),
-    sub: remanejado ? `Feito ${naDia(nomeDiaSemana(remanejado.data))} (${ddmm(remanejado.data)})` : detalhesLog(log),
+    sub: sub || null,
     status: atual || (remanejado ? "remanejado" : null),
-    onTitulo: () => sheetSessao({ item, data, log }),
+    movido: !!movido,
+    onTitulo: () => sheetSessao({ item, data, log, entrada }),
     controles: botoesStatus(atual, { feito: acao("feito"), nao_feito: acao("nao_feito"), pulado: acao("pulado") }),
   });
 }
@@ -100,22 +115,21 @@ function linhaAvulsa({ log, periodo, item, credita }) {
   });
 }
 
-function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
-  const concluido = w.status === "concluido";
-  const naoFeito = w.status === "nao_realizado";
-  const atual = concluido ? "feito" : naoFeito ? "nao_feito" : null;
-  const partes = [`${w.duracaoMin} min`];
-  if (w.rpeMin != null) partes.push(`RPE ${w.rpeMin === w.rpeMax ? w.rpeMin : w.rpeMin + "–" + w.rpeMax}`);
-  partes.push(`Semana ${w.semana}`);
-  if (concluido) partes.unshift("Feito");
-  if (naoFeito) partes.unshift("Não realizado");
+const textoRpe = (w) => (w.rpeMin === w.rpeMax ? `${w.rpeMin}` : `${w.rpeMin}–${w.rpeMax}`);
 
-  const detalhe = el("div", { class: "agenda-linha__detalhe hidden" }, [
+/**
+ * Detalhe de um treino do plano de corrida (objetivo, metas, estrutura), oculto
+ * até ser aberto. Usado na linha da agenda e no card "Próxima corrida".
+ */
+export function detalheCorrida(w, fase) {
+  const pendente = w.status !== "concluido" && w.status !== "nao_realizado";
+  return el("div", { class: "agenda-linha__detalhe hidden" }, [
     w.objetivoFisiologico ? el("p", { class: "sub", text: w.objetivoFisiologico }) : null,
     el("div", { class: "metarow" }, [
       metaItem("Duração", `${w.duracaoMin} min`),
+      w.rpeMin != null ? metaItem("RPE", textoRpe(w)) : null,
       w.zonaFC ? metaItem("Zona FC", w.zonaFC) : null,
-      resumoCorrida && resumoCorrida.fase ? metaItem("Fase", resumoCorrida.fase.nome) : null,
+      fase ? metaItem("Fase", fase.nome) : null,
     ]),
     el("div", { class: "estrutura" }, [
       blocoEstrutura("Aquecimento", w.aquecimento),
@@ -123,10 +137,25 @@ function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
       blocoEstrutura("Desaquec.", w.desaquecimento),
     ]),
     w.semanaAbsorcao ? el("span", { class: "badge badge--absorcao", text: "Semana de absorção" }) : null,
-    !concluido && !naoFeito
+    pendente
       ? botao("Registrar corrida", { variante: "primary", bloco: true, onClick: () => irPara("registrar/" + w.id) })
       : null,
   ]);
+}
+
+function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
+  const concluido = w.status === "concluido";
+  const naoFeito = w.status === "nao_realizado";
+  const atual = concluido ? "feito" : naoFeito ? "nao_feito" : null;
+  const partes = [`${w.duracaoMin} min`];
+  if (w.rpeMin != null) partes.push(`RPE ${textoRpe(w)}`);
+  partes.push(`Semana ${w.semana}`);
+  if (concluido) partes.unshift("Feito");
+  if (naoFeito) partes.unshift("Não realizado");
+  const movida = w.status === "reagendado" && w.dataOriginal && w.dataOriginal !== w.dataPlanejada;
+  if (movida) partes.unshift(`Movida de ${nomeDiaSemana(w.dataOriginal)} (${ddmm(w.dataOriginal)})`);
+
+  const detalhe = detalheCorrida(w, resumoCorrida && resumoCorrida.fase);
 
   const abrirRegistro = async () => {
     if (concluido) {
@@ -142,6 +171,7 @@ function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
     titulo: `Corrida — ${w.titulo}`,
     sub: partes.join(" · "),
     status: atual,
+    movido: movida,
     onTitulo: () => detalhe.classList.toggle("hidden"),
     controles: botoesStatus(atual, {
       feito: abrirRegistro,
@@ -166,7 +196,7 @@ function inputMinutos(valor) {
 const lerMinutos = (input) => (input.value ? Math.max(0, Math.round(Number(input.value))) : null);
 
 /** Detalhe de uma sessão: status, duração e RPE opcionais. */
-function sheetSessao({ item, data, log, avulsa }) {
+function sheetSessao({ item, data, log, avulsa, entrada }) {
   const titulo = item ? tituloSessao(item.tipo, item.rotulo) : tituloSessao(log.tipo, log.rotulo);
   const status = avulsa ? null : segmentos(
     [{ valor: "feito", rotulo: "Feito" }, { valor: "nao_feito", rotulo: "Não feito" }, { valor: "pulado", rotulo: "Pulado" }],
@@ -188,12 +218,18 @@ function sheetSessao({ item, data, log, avulsa }) {
   const remover = log
     ? botao("Remover registro", { variante: "ghost", bloco: true, onClick: async () => { fechar(); await agir(() => desmarcarSessao(log)); } })
     : null;
+  const mov = entrada && entrada.movimento;
+  const voltar = mov
+    ? botao(`Voltar para ${nomeDiaSemana(mov.dataOrigem)} · ${ROTULO_PERIODO[item.periodo].toLowerCase()}`, {
+        variante: "ghost", bloco: true, onClick: async () => { fechar(); await agir(() => voltarAoPrevisto(entrada)); },
+      })
+    : null;
 
   const fechar = abrirSheet(titulo, el("div", { class: "stack" }, [
     status ? status.node : null,
     campo("Duração (min)", min),
     el("div", { class: "campo" }, [el("label", { text: "RPE (opcional)" }), rpe.node]),
-    el("div", { class: "lista-acoes" }, [salvar, remover]),
+    el("div", { class: "lista-acoes" }, [salvar, voltar, remover]),
   ]));
 }
 

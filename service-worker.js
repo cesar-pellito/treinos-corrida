@@ -10,7 +10,7 @@
 //
 // Ao mudar qualquer arquivo da casca, incremente CACHE_VERSAO.
 
-const CACHE_VERSAO = "v13";
+const CACHE_VERSAO = "v14";
 const CACHE_NOME = `treinos-corrida-${CACHE_VERSAO}`;
 
 const CASCA = [
@@ -37,6 +37,7 @@ const CASCA = [
   "./js/views/components/ui.js",
   "./js/views/components/charts.js",
   "./js/views/components/agenda-ui.js",
+  "./js/views/components/arrastar.js",
   "./js/views/components/nutricao-ui.js",
   "./js/services/schedule.js",
   "./js/services/dates.js",

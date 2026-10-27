@@ -424,14 +424,14 @@ export async function rodarTestes(seed, reportar) {
     });
     v1.close();
 
-    // 2) o app abre (v2) e migra
+    // 2) o app abre (v3) e migra
     const db = await abrirDB();
-    eq(db.version, 2, "versão 2");
+    eq(db.version, 3, "versão 3");
     for (const s of TODOS_STORES) assert(db.objectStoreNames.contains(s), `store ${s} existe`);
 
     const cont = await repo.contarTudo();
     for (const s of Object.keys(dadosV1)) eq(cont[s], 1, `${s} preservado`);
-    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs"]) eq(cont[s], 0, `${s} vazio`);
+    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "scheduleMoves"]) eq(cont[s], 0, `${s} vazio`);
 
     // registros byte a byte iguais
     eq(JSON.stringify(await repo.obterPlano("p1")), JSON.stringify(dadosV1.plans[0]), "plano idêntico");
@@ -548,7 +548,7 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.importarBackup(dumpV1)).criados, 2);
     await repo.salvarItemAgenda({ diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B" });
     const dump = await repo.exportarTudo();
-    eq(dump.schemaVersion, 2);
+    eq(dump.schemaVersion, 3);
     eq(dump.stores.weeklySchedule.length, 1, "agenda no backup");
     await reset();
     await repo.importarBackup(dump);
@@ -639,6 +639,80 @@ export async function rodarTestes(seed, reportar) {
     eq(log.scheduleItemId, lowerB.id, "ligado ao Lower B de domingo");
     const outro = await agenda.registrarSessaoAvulsa({ data: "2026-11-07", tipo: "musculacao", rotulo: "Treino livre", periodo: "noite" });
     eq(outro.scheduleItemId, null, "rótulo sem item correspondente fica fora da agenda");
+  });
+
+  // -------------------------------------------------------------------------
+  // Arrastar treinos na semana
+  // -------------------------------------------------------------------------
+  await test("mover: Upper A de segunda (não feito) vai para terça à noite, antes do karatê", async () => {
+    await reset();
+    await seedMod.semearHub();
+    await repo.definirConfig("primeiroDiaSemana", 1);
+    const seg = "2026-10-26", ter = "2026-10-27";
+    const upperA = (await repo.listarAgenda()).find((i) => i.rotulo === "Upper A");
+    await agenda.marcarSessao(upperA, seg, "nao_feito");
+
+    let semana = await agenda.carregarSemana(seg);
+    eq(semana.naoFeitos, 1, "antes: 1 não feito");
+    const previstosAntes = semana.previstos;
+    const entrada = semana.dias[0].entradas.find((e) => e.item && e.item.id === upperA.id);
+    assert(agenda.podeMover(entrada), "item da agenda pode ser movido");
+    const karate = semana.dias[1].entradas.find((e) => e.tipo === "sessao");
+    await agenda.moverEntrada(entrada, seg, { data: ter, periodo: "noite", ordem: karate.ordem - 1 });
+
+    semana = await agenda.carregarSemana(seg);
+    assert(!semana.dias[0].entradas.some((e) => e.item && e.item.id === upperA.id), "saiu da segunda");
+    eq(semana.dias[0].entradas.filter((e) => e.tipo === "avulsa").length, 0, "o 'não feito' não vira avulsa");
+    const terca = semana.dias[1].entradas;
+    eq(terca.map((e) => e.item.rotulo).join(","), "Upper A,Intenso", "dois treinos à noite, musculação antes do karatê");
+    eq(terca[0].periodo, "noite");
+    eq(terca[0].log, null, "remarcado volta a ficar pendente");
+    eq(semana.naoFeitos, 0, "o 'não feito' da segunda saiu");
+    eq(semana.previstos, previstosAntes, "continua previsto uma vez só");
+    eq((await repo.listarAgenda()).find((i) => i.id === upperA.id).diaSemana, 1, "a agenda-padrão não muda");
+
+    // marcar feito na terça e mover de novo: o registro acompanha, sem duplicar
+    await agenda.marcarSessao(upperA, ter, "feito");
+    semana = await agenda.carregarSemana(seg);
+    eq(semana.feitos >= 1, true);
+    const naTerca = semana.dias[1].entradas.find((e) => e.item.id === upperA.id);
+    await agenda.moverEntrada(naTerca, ter, { data: "2026-10-28", periodo: "manha", ordem: 5 });
+    semana = await agenda.carregarSemana(seg);
+    const naQuarta = semana.dias[2].entradas.find((e) => e.item && e.item.id === upperA.id);
+    eq(naQuarta.log && naQuarta.log.status, "feito", "o 'feito' foi junto");
+    eq(naQuarta.movimento.dataOrigem, seg, "a origem continua sendo a segunda");
+    eq((await repo.listarSessoes()).filter((s) => s.scheduleItemId === upperA.id).length, 1, "um registro ativo só");
+    eq((await repo.listarMovimentos()).length, 1, "mover de novo edita o mesmo movimento");
+
+    // voltar ao previsto: segunda de manhã, levando o feito (reaproveita o registro da segunda)
+    await agenda.voltarAoPrevisto(naQuarta);
+    semana = await agenda.carregarSemana(seg);
+    const deVolta = semana.dias[0].entradas.find((e) => e.item && e.item.id === upperA.id);
+    eq(deVolta.periodo, "manha"); eq(deVolta.movimento, null);
+    eq(deVolta.log && deVolta.log.status, "feito", "o feito voltou junto");
+    eq((await repo.listarMovimentos()).length, 0, "movimento desfeito");
+    eq((await repo.contarTudo()).sessionLogs, 3, "segunda (reativado), terça e quarta (removidos): nada duplicado");
+
+    // a semana seguinte não é afetada
+    const seguinte = await agenda.carregarSemana("2026-11-02");
+    assert(seguinte.dias[0].entradas.some((e) => e.item && e.item.id === upperA.id), "segunda que vem segue normal");
+  });
+
+  await test("mover: corrida muda de dia e período (reagenda) e a registrada não se move", async () => {
+    await reset();
+    const w = await repo.salvarPlanned({ id: "w1", planId: "p", semana: 1, dataPlanejada: "2026-10-29", status: "futuro", titulo: "T" }, { novo: true });
+    const r = await repo.reposicionarPlanned(w.id, { data: "2026-10-30", periodo: "noite", ordemDia: 2 });
+    eq(r.dataPlanejada, "2026-10-30"); eq(r.dataOriginal, "2026-10-29"); eq(r.status, "reagendado");
+    eq(r.periodo, "noite"); eq(r.sequence, 1);
+    const dia = agenda.montarDia({ agenda: [], sessoes: [], corridas: [r], data: "2026-10-30" });
+    eq(dia[0].periodo, "noite", "período da corrida vem do treino");
+    const r2 = await repo.reposicionarPlanned(w.id, { data: "2026-10-30", periodo: "manha", ordemDia: 0 });
+    eq(r2.sequence, 1, "mesmo dia: não reagenda de novo");
+    await repo.marcarStatusPlanned(w.id, "concluido");
+    let lancou = false;
+    try { await repo.reposicionarPlanned(w.id, { data: "2026-10-31", periodo: "manha", ordemDia: 0 }); } catch { lancou = true; }
+    assert(lancou, "corrida concluída não se move");
+    assert(!agenda.podeMover({ tipo: "corrida", planned: { status: "concluido" } }));
   });
 
   await reset();

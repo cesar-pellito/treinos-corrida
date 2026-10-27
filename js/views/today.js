@@ -8,7 +8,7 @@ import { carregarDia as carregarDiaNutricao } from "../services/nutricao.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../services/dates.js";
 import { irPara } from "./router.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
-import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/agenda-ui.js";
+import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana, detalheCorrida } from "./components/agenda-ui.js";
 import { cardProteina, cardRefeicoesHoje } from "./components/nutricao-ui.js";
 
 function dataExtensa(iso) {
@@ -30,20 +30,31 @@ function cardAgenda(entradas, data, resumoCorrida) {
   return card(filhos);
 }
 
+/** Toque abre/fecha o detalhe do treino (objetivo, metas e estrutura). */
 function cardProximaCorrida(resumo) {
   const w = resumo.proximo;
   if (!w) return null;
   const dias = resumo.diasParaProximo;
   const quando = dias === 1 ? "amanhã" : `em ${dias} dias`;
+  const fase = resumo.fase && resumo.fase.id === w.phaseId ? resumo.fase : null;
+  const detalhe = detalheCorrida(w, fase);
+  const cabeca = el("button", {
+    type: "button", class: "mini mini--expansivel", "aria-expanded": "false",
+    onClick: () => {
+      const aberto = detalhe.classList.toggle("hidden") === false;
+      cabeca.setAttribute("aria-expanded", String(aberto));
+    },
+  }, [
+    el("div", { class: "esq" }, [
+      el("span", { class: "rotulo", text: `${nomeDiaSemana(w.dataPlanejada)} · ${quando}` }),
+      el("strong", { text: w.titulo }),
+    ]),
+    el("span", { class: "dir", text: `${w.duracaoMin} min · sem. ${w.semana}` }),
+    el("span", { class: "mini__seta", "aria-hidden": "true" }),
+  ]);
   return card([
     el("p", { class: "eyebrow", text: "Próxima corrida" }),
-    el("div", { class: "mini" }, [
-      el("div", { class: "esq" }, [
-        el("span", { class: "rotulo", text: `${nomeDiaSemana(w.dataPlanejada)} · ${quando}` }),
-        el("strong", { text: w.titulo }),
-      ]),
-      el("span", { class: "dir", text: `${w.duracaoMin} min · sem. ${w.semana}` }),
-    ]),
+    el("div", { class: "mini-expansivel" }, [cabeca, detalhe]),
   ]);
 }
 

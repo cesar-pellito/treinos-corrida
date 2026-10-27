@@ -492,3 +492,40 @@ input[type="date"], input[type="text"], input[type="number"], select {
 
 .agenda-linha--remanejado { border-color: var(--ok); border-style: dashed; }
 .agenda-linha--remanejado .agenda-linha__sub { color: var(--ok-ink); }
+.agenda-linha--movido:not(.agenda-linha--feito) .agenda-linha__sub { color: var(--accent); }
+
+/* ---------- Próxima corrida (toque expande o detalhe) ---------- */
+.mini-expansivel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.mini--expansivel {
+  width: 100%; border: none; background: transparent; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; min-height: var(--tap);
+}
+.mini__seta {
+  flex-shrink: 0; width: 8px; height: 8px; margin: 0 4px 4px 0;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg); transition: transform .15s;
+}
+.mini--expansivel[aria-expanded="true"] .mini__seta { transform: rotate(-135deg); margin: 4px 4px 0 0; }
+.mini-expansivel .agenda-linha__detalhe { padding: 0 14px 14px; }
+.mini-expansivel .metarow { margin-top: 4px; }
+
+/* ---------- Arrastar treinos na semana ---------- */
+.dica-arrastar { font-size: .82rem; color: var(--muted); margin: -4px 4px 12px; }
+.slot { display: grid; gap: 8px; border-radius: var(--radius-sm); }
+.slot--vazio { display: none; }
+body.arrastando { cursor: grabbing; }
+body.arrastando .slot--vazio {
+  display: flex; align-items: center; justify-content: center; min-height: 46px;
+  border: 1.5px dashed var(--border); color: var(--muted); font-size: .8rem;
+}
+body.arrastando .slot--vazio::before { content: attr(data-rotulo); }
+body.arrastando .dia-card__descanso { display: none; }
+.slot--alvo { outline: 2px dashed var(--accent); outline-offset: 3px; }
+body.arrastando .slot--vazio.slot--alvo { border-color: transparent; background: var(--accent-weak); color: var(--accent); font-weight: 650; }
+.arrastavel { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.arrasto-origem { opacity: .35; }
+.arrasto-fantasma {
+  position: fixed; z-index: 1000; margin: 0; pointer-events: none;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .35); transform: scale(1.02);
+}
+.arrasto-indicador { position: fixed; z-index: 999; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }

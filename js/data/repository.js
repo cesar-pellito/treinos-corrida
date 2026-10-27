@@ -169,6 +169,29 @@ export async function reagendarPlanned(id, novaDataISO) {
   });
 }
 
+/**
+ * Arrastar a corrida na semana: muda período e posição no dia (`periodo`,
+ * `ordemDia`) e, se a data mudar, reagenda com as mesmas regras de
+ * reagendarPlanned (dataOriginal só na 1ª vez, status 'reagendado', sequence).
+ */
+export async function reposicionarPlanned(id, { data, periodo, ordemDia }) {
+  return comTransacao(STORES.plannedWorkouts, "readwrite", async (tx) => {
+    const atual = await getReq(tx, STORES.plannedWorkouts, id);
+    if (!atual) throw new Error(`Treino planejado não encontrado: ${id}`);
+    if (atual.status === "concluido") throw new Error("Corrida já registrada não muda de dia.");
+    const merged = { ...atual, periodo, ordemDia };
+    if (data && data !== atual.dataPlanejada) {
+      if (!merged.dataOriginal) merged.dataOriginal = atual.dataPlanejada;
+      merged.dataPlanejada = data;
+      merged.status = "reagendado";
+      merged.sequence = (atual.sequence || 0) + 1;
+    }
+    const carimbado = carimbar(merged, { novo: false });
+    tx.objectStore(STORES.plannedWorkouts).put(carimbado);
+    return carimbado;
+  });
+}
+
 /** Altera apenas o status do planejado (ex.: marcar 'nao_realizado'). */
 export async function marcarStatusPlanned(id, status) {
   return comTransacao(STORES.plannedWorkouts, "readwrite", async (tx) => {
@@ -444,6 +467,64 @@ export async function listarSessoes({ de, ate } = {}) {
 /** Desmarcar: tombstone (o próximo toque no mesmo item/dia reativa o registro). */
 export async function removerSessao(id) {
   return removerLogico(STORES.sessionLogs, id);
+}
+
+// ---------------------------------------------------------------------------
+// scheduleMoves — item da agenda movido de dia/período numa semana
+// ---------------------------------------------------------------------------
+
+/**
+ * Move a ocorrência de um item da agenda (a da semana de `dataOrigem`) para
+ * `data`/`periodo`, na posição `ordem` dentro do período. UM registro por
+ * (scheduleItemId, dataOrigem): mover de novo edita; `voltar` desfaz (tombstone).
+ * `dataAtual` = onde a ocorrência está agora (= dataOrigem se nunca foi movida).
+ *
+ * O registro de sessão da ocorrência acompanha, na mesma transação:
+ *   - mesma data: só muda o período;
+ *   - outra data e "feito": o registro vai junto (o treino foi feito no outro dia);
+ *   - outra data e "não feito"/"pulado": o registro sai (tombstone): o treino
+ *     foi remarcado e volta a ficar pendente.
+ */
+export async function moverOcorrencia({ scheduleItemId, dataOrigem, dataAtual, data, periodo, ordem = 0, voltar = false }) {
+  if (!scheduleItemId || !dataOrigem || !dataAtual || !data) throw new Error("Movimento incompleto.");
+  if (!PERIODOS.includes(periodo)) throw new Error(`Período inválido: ${periodo}`);
+  return comTransacao([STORES.scheduleMoves, STORES.sessionLogs], "readwrite", async (tx) => {
+    const sessoes = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", scheduleItemId);
+    const log = sessoes.find((s) => s.data === dataAtual && !s.removido);
+    if (log) {
+      const st = tx.objectStore(STORES.sessionLogs);
+      if (data === dataAtual) {
+        st.put(carimbar({ ...log, periodo }, { novo: false }));
+      } else {
+        st.put(carimbar({ ...log, removido: true }, { novo: false }));
+        if (log.status === "feito") {
+          // reaproveita o registro do destino (mesmo removido): segue 1 por (data, item)
+          const destino = sessoes.find((s) => s.data === data) || null;
+          const { id, criadoEm, atualizadoEm, ...campos } = log;
+          const base = destino ? { ...destino, ...campos } : { ...campos, id: gerarId() };
+          st.put(carimbar({ ...base, data, periodo, removido: false }, { novo: !destino }));
+        }
+      }
+    }
+
+    const movimentos = await indexGetAll(tx, STORES.scheduleMoves, "scheduleItemId", scheduleItemId);
+    const existente = movimentos.find((m) => m.dataOrigem === dataOrigem) || null;
+    const ms = tx.objectStore(STORES.scheduleMoves);
+    if (voltar) {
+      if (existente && !existente.removido) ms.put(carimbar({ ...existente, removido: true }, { novo: false }));
+      return null;
+    }
+    const base = existente ? { ...existente } : { id: gerarId(), scheduleItemId, dataOrigem };
+    const carimbado = carimbar({ ...base, data, periodo, ordem, removido: false }, { novo: !existente });
+    ms.put(carimbado);
+    return carimbado;
+  });
+}
+
+/** Movimentos ativos com destino entre `de` e `ate` (inclusivos). */
+export async function listarMovimentos({ de, ate } = {}) {
+  const todos = de && ate ? await listarPorData(STORES.scheduleMoves, de, ate) : await listar(STORES.scheduleMoves);
+  return todos.filter(ativo);
 }
 
 // ---------------------------------------------------------------------------
