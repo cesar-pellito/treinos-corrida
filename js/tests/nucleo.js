@@ -9,7 +9,7 @@
 
 import * as repo from "../data/repository.js";
 import * as seedMod from "../data/seed.js";
-import { apagarDB, abrirDB, migrarPara1, DB_NOME, TODOS_STORES } from "../data/db.js";
+import { apagarDB, abrirDB, migrarPara1, migrarPara2, migrarPara3, DB_NOME, TODOS_STORES } from "../data/db.js";
 import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as nutri from "../services/nutricao.js";
@@ -19,7 +19,7 @@ import {
 } from "../services/pace.js";
 import {
   deISODate, paraISODate, somarDias, diffDias, diaDaSemana,
-  inicioDaSemana, ehISODateValida,
+  inicioDaSemana, ehISODateValida, hoje as hojeDeHoje,
 } from "../services/dates.js";
 import { aderencia, seriesSemanais, comparacaoSemelhante } from "../services/stats.js";
 import { statusEfetivo, remarcarEmpurrando } from "../services/schedule.js";
@@ -424,14 +424,14 @@ export async function rodarTestes(seed, reportar) {
     });
     v1.close();
 
-    // 2) o app abre (v3) e migra
+    // 2) o app abre (v4) e migra
     const db = await abrirDB();
-    eq(db.version, 3, "versão 3");
+    eq(db.version, 4, "versão 4");
     for (const s of TODOS_STORES) assert(db.objectStoreNames.contains(s), `store ${s} existe`);
 
     const cont = await repo.contarTudo();
     for (const s of Object.keys(dadosV1)) eq(cont[s], 1, `${s} preservado`);
-    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "scheduleMoves"]) eq(cont[s], 0, `${s} vazio`);
+    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "scheduleMoves", "sessionMerges"]) eq(cont[s], 0, `${s} vazio`);
 
     // registros byte a byte iguais
     eq(JSON.stringify(await repo.obterPlano("p1")), JSON.stringify(dadosV1.plans[0]), "plano idêntico");
@@ -548,7 +548,7 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.importarBackup(dumpV1)).criados, 2);
     await repo.salvarItemAgenda({ diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B" });
     const dump = await repo.exportarTudo();
-    eq(dump.schemaVersion, 3);
+    eq(dump.schemaVersion, 4);
     eq(dump.stores.weeklySchedule.length, 1, "agenda no backup");
     await reset();
     await repo.importarBackup(dump);
@@ -578,7 +578,7 @@ export async function rodarTestes(seed, reportar) {
 
   await test("nutrição: proteína do dia = refeições × porção + extras; removido não soma", async () => {
     await reset();
-    const d = "2026-11-03";
+    const d = "2026-10-27";
     await nutri.registrarRefeicao({ data: d, refeicaoId: "cafe", varianteIndex: 0 });              // 43
     await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0, fracao: 0.5 }); // 24
     await nutri.registrarProteinaExtra({ data: d, proteinaG: 25, descricao: "shake" });            // 25
@@ -713,6 +713,138 @@ export async function rodarTestes(seed, reportar) {
     try { await repo.reposicionarPlanned(w.id, { data: "2026-10-31", periodo: "manha", ordemDia: 0 }); } catch { lancou = true; }
     assert(lancou, "corrida concluída não se move");
     assert(!agenda.podeMover({ tipo: "corrida", planned: { status: "concluido" } }));
+  });
+
+  // =========================================================================
+  // v4: merge de sessões e registro retroativo de refeições
+  // =========================================================================
+
+  await test("migração v3→v4: todos os registros intactos, índices funcionando e sessionMerges vazio", async () => {
+    await reset();
+    const T = "2026-10-20T10:00:00.000Z";
+    const dadosV3 = {
+      plans: [{ id: "p1", nome: "Plano", ativo: true, criadoEm: T, atualizadoEm: T }],
+      phases: [{ id: "f1", planId: "p1", numero: 1, nome: "F1", atualizadoEm: T }],
+      plannedWorkouts: [{ id: "w1", planId: "p1", phaseId: "f1", semana: 1, dataPlanejada: "2026-10-22", status: "concluido", titulo: "T", periodo: "manha", ordemDia: 0, atualizadoEm: T }],
+      completedWorkouts: [{ id: "c1", plannedWorkoutId: "w1", avulso: false, data: "2026-10-22", duracaoSeg: 1500, atualizadoEm: T }],
+      discomforts: [{ id: "d1", completedWorkoutId: "c1", data: "2026-10-22", regiao: "joelho", intensidade: 1, atualizadoEm: T }],
+      settings: [{ chave: "metas", valor: { proteinaMinG: 150, proteinaMaxG: 170, lowerPorSemana: 2 }, atualizadoEm: T }],
+      weeklySchedule: [{ id: "a1", diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A", opcional: false, ordem: 0, atualizadoEm: T }],
+      sessionLogs: [{ id: "s1", data: "2026-10-22", scheduleItemId: "a1", tipo: "musculacao", rotulo: "Lower A", periodo: "noite", opcional: false, status: "pulado", removido: false, atualizadoEm: T }],
+      foodLogs: [{ id: "uuid-antigo", tipo: "refeicao", data: "2026-10-22", refeicaoId: "cafe", varianteIndex: 0, fracao: 1, macros: { kcal: 500, prot: 43, carb: 50, gord: 15 }, removido: false, atualizadoEm: T }],
+      scheduleMoves: [{ id: "m1", scheduleItemId: "a1", dataOrigem: "2026-10-22", data: "2026-10-23", periodo: "manha", ordem: 0, removido: false, atualizadoEm: T }],
+    };
+    const v3 = await new Promise((resolve, reject) => {
+      const r = globalThis.indexedDB.open(DB_NOME, 3);
+      r.onupgradeneeded = () => { migrarPara1(r.result); migrarPara2(r.result); migrarPara3(r.result); };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    eq(v3.objectStoreNames.length, 10, "v3 tem 10 stores");
+    await new Promise((resolve, reject) => {
+      const tx = v3.transaction(Object.keys(dadosV3), "readwrite");
+      for (const [s, recs] of Object.entries(dadosV3)) for (const r of recs) tx.objectStore(s).put(r);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    v3.close();
+
+    const db = await abrirDB();
+    eq(db.version, 4, "versão 4");
+    const dump = await repo.exportarTudo();
+    for (const [s, recs] of Object.entries(dadosV3)) {
+      eq(JSON.stringify(dump.stores[s]), JSON.stringify(recs), `${s} idêntico byte a byte`);
+    }
+    eq(dump.stores.sessionMerges.length, 0, "sessionMerges vazio");
+    eq((await repo.plannedNaData("2026-10-22")).length, 1, "índice dataPlanejada");
+    eq((await repo.listarSessoes({ de: "2026-10-22", ate: "2026-10-22" })).length, 1, "índice data de sessionLogs");
+    eq((await repo.listarMovimentos({ de: "2026-10-23", ate: "2026-10-23" })).length, 1, "índice data de scheduleMoves");
+    eq((await repo.listarRegistrosAlimentares({ de: "2026-10-22", ate: "2026-10-22" })).length, 1, "índice data de foodLogs");
+    eq((await repo.listarMerges({ de: "2026-10-01", ate: "2026-10-31" })).length, 0, "índice data de sessionMerges");
+
+    // a refeição antiga (UUID) continua sendo a do dia: registrar de novo edita
+    const ed = await repo.registrarRefeicao({ data: "2026-10-22", refeicaoId: "cafe", fracao: 0.5, macros: { prot: 43 } });
+    eq(ed.id, "uuid-antigo", "edita o registro antigo, não cria outro");
+  });
+
+  await test("merge (repository): origens viram 'mesclada'; desfazer restaura o estado de antes", async () => {
+    await reset();
+    const la = await repo.salvarItemAgenda({ diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A" });
+    const lb = await repo.salvarItemAgenda({ diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B" });
+    const antes = await agenda.marcarSessao(la, "2026-10-29", "nao_feito", { duracaoMin: 5 });
+    const origens = [
+      { scheduleItemId: la.id, dataOcorrencia: "2026-10-29", tipo: "musculacao", rotulo: "Lower A", periodo: "noite" },
+      { scheduleItemId: lb.id, dataOcorrencia: "2026-11-01", tipo: "musculacao", rotulo: "Lower B", periodo: "manha" },
+    ];
+    const m = await repo.juntarSessoes({ origens, data: "2026-10-31", periodo: "manha", rotulo: "Lower A + Lower B" });
+    eq(m.origens[0].logAnterior.status, "nao_feito", "guarda o registro de antes");
+    eq(m.origens[1].logAnterior, null, "Lower B não tinha registro");
+    let ses = await repo.listarSessoes();
+    eq(ses.length, 2);
+    assert(ses.every((s) => s.status === "mesclada" && s.mergeId === m.id), "as duas origens mescladas, com vínculo");
+    eq(ses.find((s) => s.scheduleItemId === la.id).id, antes.id, "reaproveita o registro do Lower A (1 por data e item)");
+
+    let lancou = false;
+    try { await agenda.marcarSessao(la, "2026-10-29", "feito"); } catch { lancou = true; }
+    assert(lancou, "origem mesclada não muda pelo check");
+    lancou = false;
+    try { await repo.juntarSessoes({ origens, data: "2026-10-31", periodo: "manha", rotulo: "x" }); } catch { lancou = true; }
+    assert(lancou, "origem já mesclada não entra em outro merge");
+
+    await repo.desfazerMerge(m.id);
+    ses = await repo.listarSessoes();
+    eq(ses.length, 1, "só o Lower A tinha registro");
+    eq(ses[0].status, "nao_feito"); eq(ses[0].duracaoMin, 5); eq(ses[0].id, antes.id);
+    eq(ses[0].mergeId, undefined, "sem vínculo depois de desfazer");
+    eq((await repo.listarMerges()).length, 0, "merge desfeito some da lista");
+    eq((await repo.contarTudo()).sessionMerges, 1, "mas fica no banco (tombstone)");
+
+    // com a combinada feita, não desfaz
+    const m2 = await repo.juntarSessoes({ origens, data: "2026-10-31", periodo: "manha", rotulo: "Lower A + Lower B" });
+    await repo.atualizarMerge(m2.id, { status: "feito", duracaoMin: 70 });
+    lancou = false;
+    try { await repo.desfazerMerge(m2.id); } catch { lancou = true; }
+    assert(lancou, "combinada feita não desfaz");
+  });
+
+  await test("merge (repository): recusa sessão feita, corrida/karatê e a mesma sessão duas vezes", async () => {
+    await reset();
+    const ua = await repo.salvarItemAgenda({ diaSemana: 1, periodo: "manha", tipo: "musculacao", rotulo: "Upper A" });
+    const ub = await repo.salvarItemAgenda({ diaSemana: 3, periodo: "manha", tipo: "musculacao", rotulo: "Upper B" });
+    await agenda.marcarSessao(ua, "2026-10-26", "feito");
+    const o = (item, data, tipo = "musculacao") => ({ scheduleItemId: item.id, dataOcorrencia: data, tipo, rotulo: item.rotulo, periodo: "manha" });
+    const recusa = async (args, msg) => {
+      let lancou = false;
+      try { await repo.juntarSessoes({ data: "2026-10-31", periodo: "manha", rotulo: "x", ...args }); } catch { lancou = true; }
+      assert(lancou, msg);
+    };
+    await recusa({ origens: [o(ua, "2026-10-26"), o(ub, "2026-10-28")] }, "sessão feita");
+    await recusa({ origens: [o(ub, "2026-10-28"), o(ub, "2026-10-28")] }, "a mesma sessão duas vezes");
+    await recusa({ origens: [o(ub, "2026-10-28"), { ...o(ua, "2026-10-29"), tipo: "karate" }] }, "karatê");
+    await recusa({ origens: [o(ub, "2026-10-28"), { ...o(ua, "2026-10-29"), tipo: "corrida" }] }, "corrida");
+    await recusa({ origens: [o(ub, "2026-10-28")] }, "uma sessão só");
+    eq((await repo.contarTudo()).sessionMerges, 0, "nada gravado");
+  });
+
+  await test("refeições: dia futuro recusado; mesmo dia e refeição duas vezes não duplica (ID estável)", async () => {
+    await reset();
+    let lancou = false;
+    try { await nutri.registrarRefeicao({ data: somarDias(hojeDeHoje(), 1), refeicaoId: "cafe" }); } catch { lancou = true; }
+    assert(lancou, "amanhã recusado");
+    lancou = false;
+    try { await nutri.registrarProteinaExtra({ data: somarDias(hojeDeHoje(), 1), proteinaG: 20 }); } catch { lancou = true; }
+    assert(lancou, "extra amanhã recusado");
+
+    const d = "2026-10-25";
+    const a = await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0 });
+    const b = await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0, fracao: 0.5 });
+    eq(a.id, repo.idRefeicao(d, "almoco"), "ID estável por dia e refeição");
+    eq(b.id, a.id, "mesmo registro");
+    await nutri.desfazerRegistro(b);
+    const c = await nutri.registrarRefeicao({ data: d, refeicaoId: "almoco", varianteIndex: 0 });
+    eq(c.id, a.id, "reativa o mesmo registro");
+    eq((await repo.contarTudo()).foodLogs, 1, "um registro só no banco");
+    eq(c.criadoEm, a.criadoEm, "criadoEm não muda ao editar");
   });
 
   await reset();

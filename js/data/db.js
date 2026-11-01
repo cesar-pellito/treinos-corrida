@@ -7,12 +7,13 @@
 // exportado em Ajustes (via repository.exportarTudo).
 
 export const DB_NOME = "treinos-corrida";
-export const DB_VERSAO = 3;
+export const DB_VERSAO = 4;
 
 // Nomes dos object stores.
 //   v1: os seis da corrida.
 //   v2: o hub (agenda semanal, sessões, alimentação).
 //   v3: itens da agenda movidos de dia/período numa semana específica.
+//   v4: sessões combinadas (merge de duas sessões de musculação da semana).
 export const STORES = {
   plans: "plans",
   phases: "phases",
@@ -24,6 +25,7 @@ export const STORES = {
   sessionLogs: "sessionLogs",
   foodLogs: "foodLogs",
   scheduleMoves: "scheduleMoves",
+  sessionMerges: "sessionMerges",
 };
 
 // Todos os stores, na ordem de criação. Todos carimbam atualizadoEm (merge
@@ -89,9 +91,10 @@ function criarSchema(db, versaoAntiga) {
   if (versaoAntiga < 1) migrarPara1(db);
   if (versaoAntiga < 2) migrarPara2(db);
   if (versaoAntiga < 3) migrarPara3(db);
+  if (versaoAntiga < 4) migrarPara4(db);
 }
 
-/** v1: os seis stores da corrida. Exportada para o teste de migração v1→v2. */
+/** v1: os seis stores da corrida. Exportada para os testes de migração. */
 export function migrarPara1(db) {
   const plans = db.createObjectStore(STORES.plans, { keyPath: "id" });
   plans.createIndex("ativo", "ativo", { unique: false });
@@ -144,6 +147,12 @@ export function migrarPara3(db) {
   const mov = db.createObjectStore(STORES.scheduleMoves, { keyPath: "id" });
   mov.createIndex("data", "data", { unique: false });
   mov.createIndex("scheduleItemId", "scheduleItemId", { unique: false });
+}
+
+/** v4: sessão combinada (merge). Só cria o store novo; as origens ficam em sessionLogs. */
+export function migrarPara4(db) {
+  const merges = db.createObjectStore(STORES.sessionMerges, { keyPath: "id" });
+  merges.createIndex("data", "data", { unique: false });
 }
 
 /**

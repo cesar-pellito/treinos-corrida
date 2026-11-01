@@ -14,7 +14,7 @@
 // decidir quem vence (last-write-wins).
 
 import { STORES, TODOS_STORES, comTransacao, req, abrirDB } from "./db.js";
-import { agoraISO } from "../services/dates.js";
+import { agoraISO, hoje as hojeISO } from "../services/dates.js";
 
 // Aviso de abertura bloqueada (upgrade de versão com outra aba aberta) — o
 // bootstrap registra quem mostra a mensagem; ninguém acima importa db.js.
@@ -403,7 +403,10 @@ export async function removerItemAgenda(id) {
 // ---------------------------------------------------------------------------
 // sessionLogs — check de musculação/karatê (a corrida usa completedWorkouts)
 // ---------------------------------------------------------------------------
-export const STATUS_SESSAO = ["feito", "nao_feito", "pulado"];
+// "mesclada" (v4): a ocorrência foi juntada a outra numa sessão combinada
+// (sessionMerges); o registro guarda `mergeId`. Só juntarSessoes grava este status.
+export const STATUS_SESSAO = ["feito", "nao_feito", "pulado", "mesclada"];
+const ERRO_MESCLADA = "Esta sessão está numa sessão combinada. Desfaça o merge para mudar.";
 
 /**
  * Marca uma sessão. UM registro por (data, scheduleItemId): se já existe —
@@ -415,7 +418,7 @@ export const STATUS_SESSAO = ["feito", "nao_feito", "pulado"];
  */
 export async function registrarSessao(dados) {
   if (!dados.data) throw new Error("Sessão sem data.");
-  if (!STATUS_SESSAO.includes(dados.status)) throw new Error(`Status inválido: ${dados.status}`);
+  if (!STATUS_SESSAO.includes(dados.status) || dados.status === "mesclada") throw new Error(`Status inválido: ${dados.status}`);
   const itemId = dados.scheduleItemId ?? null;
   return comTransacao(STORES.sessionLogs, "readwrite", async (tx) => {
     let existente = null;
@@ -423,6 +426,7 @@ export async function registrarSessao(dados) {
       const doItem = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", itemId);
       existente = doItem.find((s) => s.data === dados.data) || null;
     }
+    if (existente && !existente.removido && existente.status === "mesclada") throw new Error(ERRO_MESCLADA);
     const base = existente
       ? { ...existente }
       : {
@@ -443,7 +447,8 @@ export async function atualizarSessao(id, alteracoes) {
   return comTransacao(STORES.sessionLogs, "readwrite", async (tx) => {
     const atual = await getReq(tx, STORES.sessionLogs, id);
     if (!atual) throw new Error(`Sessão não encontrada: ${id}`);
-    if (alteracoes.status !== undefined && !STATUS_SESSAO.includes(alteracoes.status)) {
+    if (atual.status === "mesclada" && !atual.removido) throw new Error(ERRO_MESCLADA);
+    if (alteracoes.status !== undefined && (!STATUS_SESSAO.includes(alteracoes.status) || alteracoes.status === "mesclada")) {
       throw new Error(`Status inválido: ${alteracoes.status}`);
     }
     const proibidos = ["id", "criadoEm", "scheduleItemId", "data"];
@@ -466,6 +471,8 @@ export async function listarSessoes({ de, ate } = {}) {
 }
 /** Desmarcar: tombstone (o próximo toque no mesmo item/dia reativa o registro). */
 export async function removerSessao(id) {
+  const atual = await obter(STORES.sessionLogs, id);
+  if (atual && atual.status === "mesclada" && !atual.removido) throw new Error(ERRO_MESCLADA);
   return removerLogico(STORES.sessionLogs, id);
 }
 
@@ -491,6 +498,7 @@ export async function moverOcorrencia({ scheduleItemId, dataOrigem, dataAtual, d
   return comTransacao([STORES.scheduleMoves, STORES.sessionLogs], "readwrite", async (tx) => {
     const sessoes = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", scheduleItemId);
     const log = sessoes.find((s) => s.data === dataAtual && !s.removido);
+    if (log && log.status === "mesclada") throw new Error(ERRO_MESCLADA);
     if (log) {
       const st = tx.objectStore(STORES.sessionLogs);
       if (data === dataAtual) {
@@ -528,22 +536,148 @@ export async function listarMovimentos({ de, ate } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// sessionMerges — duas sessões de musculação juntadas numa só (v4)
+//
+// As ocorrências de origem NÃO são apagadas: o registro de cada uma (o mesmo de
+// sempre, 1 por (data, item)) ganha status "mesclada" e `mergeId`. O merge guarda
+// as origens com o `logAnterior` (o registro antes do merge, ou null), que é o
+// que "desfazer" restaura. Regras de semana e de tipo ficam em services/merge.js;
+// aqui ficam as que protegem os dados.
+// ---------------------------------------------------------------------------
+export const STATUS_COMBINADA = [null, "feito", "nao_feito", "pulado"];
+
+/**
+ * Cria a sessão combinada e marca as origens, numa transação.
+ * `origens`: [{scheduleItemId, dataOcorrencia, dataOrigem, tipo, rotulo, periodo, opcional}].
+ * Recusa: menos/mais de 2 origens, o mesmo item duas vezes, tipo diferente de
+ * musculação, origem já feita ou já mesclada.
+ */
+export async function juntarSessoes({ origens, data, periodo, ordem = 0, rotulo, plano = null }) {
+  if (!Array.isArray(origens) || origens.length !== 2) throw new Error("Escolha duas sessões para juntar.");
+  if (origens[0].scheduleItemId === origens[1].scheduleItemId && origens[0].dataOcorrencia === origens[1].dataOcorrencia) {
+    throw new Error("Escolha duas sessões diferentes.");
+  }
+  if (origens.some((o) => o.tipo !== "musculacao")) throw new Error("Só sessões de musculação podem ser juntadas.");
+  if (!data) throw new Error("Sessão combinada sem data.");
+  if (!PERIODOS.includes(periodo)) throw new Error(`Período inválido: ${periodo}`);
+  return comTransacao([STORES.sessionMerges, STORES.sessionLogs], "readwrite", async (tx) => {
+    const mergeId = gerarId();
+    const st = tx.objectStore(STORES.sessionLogs);
+    const gravadas = [];
+    for (const o of origens) {
+      const doItem = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", o.scheduleItemId);
+      const doDia = doItem.filter((s) => s.data === o.dataOcorrencia);
+      const ativoNoDia = doDia.find((s) => !s.removido) || null;
+      if (ativoNoDia && ativoNoDia.status === "feito") throw new Error(`${o.rotulo || "Sessão"} já foi feita.`);
+      if (ativoNoDia && ativoNoDia.status === "mesclada") throw new Error(`${o.rotulo || "Sessão"} já está numa sessão combinada.`);
+      const reaproveitado = ativoNoDia || doDia[0] || null; // segue 1 registro por (data, item)
+      const base = reaproveitado
+        ? { ...reaproveitado }
+        : { id: gerarId(), scheduleItemId: o.scheduleItemId, data: o.dataOcorrencia, duracaoMin: null, rpe: null, observacoes: null };
+      st.put(carimbar({
+        ...base, tipo: o.tipo, rotulo: o.rotulo, periodo: o.periodo, opcional: !!o.opcional,
+        status: "mesclada", mergeId, removido: false,
+      }, { novo: !reaproveitado }));
+      gravadas.push({
+        scheduleItemId: o.scheduleItemId, rotulo: o.rotulo, periodo: o.periodo,
+        dataOcorrencia: o.dataOcorrencia, dataOrigem: o.dataOrigem || o.dataOcorrencia,
+        logAnterior: ativoNoDia ? { ...ativoNoDia } : null,
+      });
+    }
+    const merge = carimbar({
+      id: mergeId, tipo: "musculacao", data, periodo, ordem, rotulo, plano,
+      origens: gravadas, status: null, duracaoMin: null, rpe: null, removido: false,
+    }, { novo: true });
+    tx.objectStore(STORES.sessionMerges).put(merge);
+    return merge;
+  });
+}
+
+/**
+ * Desfaz o merge: as origens voltam ao registro de antes (ou deixam de ter
+ * registro) e o merge vira tombstone. Recusado depois de a combinada ser feita.
+ */
+export async function desfazerMerge(id) {
+  return comTransacao([STORES.sessionMerges, STORES.sessionLogs], "readwrite", async (tx) => {
+    const merge = await getReq(tx, STORES.sessionMerges, id);
+    if (!merge || merge.removido) throw new Error("Sessão combinada não encontrada.");
+    if (merge.status === "feito") throw new Error("A sessão combinada já foi feita; não dá para desfazer.");
+    const st = tx.objectStore(STORES.sessionLogs);
+    for (const o of merge.origens) {
+      const doItem = await indexGetAll(tx, STORES.sessionLogs, "scheduleItemId", o.scheduleItemId);
+      const log = doItem.find((s) => s.data === o.dataOcorrencia && s.mergeId === id && !s.removido);
+      if (!log) continue;
+      st.put(carimbar(o.logAnterior ? { ...o.logAnterior, id: log.id } : { ...log, removido: true }, { novo: false }));
+    }
+    const carimbado = carimbar({ ...merge, removido: true }, { novo: false });
+    tx.objectStore(STORES.sessionMerges).put(carimbado);
+    return carimbado;
+  });
+}
+
+/** Marca a combinada (status, duração, RPE). `status: null` volta a pendente. */
+export async function atualizarMerge(id, alteracoes) {
+  return comTransacao(STORES.sessionMerges, "readwrite", async (tx) => {
+    const atual = await getReq(tx, STORES.sessionMerges, id);
+    if (!atual || atual.removido) throw new Error("Sessão combinada não encontrada.");
+    if (alteracoes.status !== undefined && !STATUS_COMBINADA.includes(alteracoes.status)) {
+      throw new Error(`Status inválido: ${alteracoes.status}`);
+    }
+    const merged = { ...atual };
+    for (const k of ["status", "duracaoMin", "rpe"]) if (alteracoes[k] !== undefined) merged[k] = alteracoes[k];
+    const carimbado = carimbar(merged, { novo: false });
+    tx.objectStore(STORES.sessionMerges).put(carimbado);
+    return carimbado;
+  });
+}
+
+export async function obterMerge(id) {
+  return obter(STORES.sessionMerges, id);
+}
+
+/** Merges ativos com a combinada entre `de` e `ate` (inclusivos). */
+export async function listarMerges({ de, ate } = {}) {
+  const todos = de && ate ? await listarPorData(STORES.sessionMerges, de, ate) : await listar(STORES.sessionMerges);
+  return todos.filter(ativo);
+}
+
+// ---------------------------------------------------------------------------
 // foodLogs — refeições do plano e proteína extra
 // ---------------------------------------------------------------------------
 
+// `data` é o dia a que o registro se refere; `criadoEm`/`atualizadoEm`, quando
+// foi lançado. Dá para lançar qualquer dia passado (registro retroativo), nunca
+// um dia futuro.
+function recusarFuturo(data) {
+  if (data > hojeISO()) throw new Error("Não dá para registrar num dia futuro.");
+}
+
+/** ID estável de uma refeição do dia: dois aparelhos geram o mesmo, e o backup não duplica. */
+export function idRefeicao(data, refeicaoId) {
+  return `refeicao:${data}:${refeicaoId}`;
+}
+
+/** Entre registros da mesma (data, refeição), o ativo mais recente (ou o mais recente de todos). */
+export function registroVigente(registros) {
+  const recentes = [...registros].sort((a, b) => ((a.atualizadoEm || "") < (b.atualizadoEm || "") ? 1 : -1));
+  return recentes.find((r) => !r.removido) || recentes[0] || null;
+}
+
 /**
  * Registra uma refeição do plano. UMA por (data, refeicaoId): se já existe —
- * inclusive removida — é EDITADA e reativada, nunca duplicada. `macros` é o
+ * inclusive removida — é EDITADA e reativada, nunca duplicada. Registros novos
+ * usam o ID estável `idRefeicao` (os antigos mantêm o UUID). `macros` é o
  * snapshot da estimativa no momento do registro (mudar a tabela de estimativas
  * depois não reescreve o histórico).
  */
 export async function registrarRefeicao(dados) {
   if (!dados.data || !dados.refeicaoId) throw new Error("Refeição sem data ou sem refeicaoId.");
   if (!(dados.fracao > 0)) throw new Error("Porção inválida.");
+  recusarFuturo(dados.data);
   return comTransacao(STORES.foodLogs, "readwrite", async (tx) => {
     const doDia = await indexGetAll(tx, STORES.foodLogs, "data", dados.data);
-    const existente = doDia.find((r) => r.tipo === "refeicao" && r.refeicaoId === dados.refeicaoId) || null;
-    const base = existente ? { ...existente } : { id: gerarId(), tipo: "refeicao", escolhas: null };
+    const existente = registroVigente(doDia.filter((r) => r.tipo === "refeicao" && r.refeicaoId === dados.refeicaoId));
+    const base = existente ? { ...existente } : { id: idRefeicao(dados.data, dados.refeicaoId), tipo: "refeicao", escolhas: null };
     for (const [k, v] of Object.entries(dados)) {
       if (v !== undefined && k !== "id" && k !== "criadoEm" && k !== "tipo") base[k] = v;
     }
@@ -558,6 +692,7 @@ export async function registrarRefeicao(dados) {
 export async function registrarExtra({ data, proteinaG, descricao = null }) {
   if (!data) throw new Error("Lançamento sem data.");
   if (!(typeof proteinaG === "number" && proteinaG > 0 && proteinaG < 500)) throw new Error("Proteína extra inválida.");
+  recusarFuturo(data);
   const r = { id: gerarId(), tipo: "extra", data, proteinaG, descricao, removido: false };
   return put(STORES.foodLogs, r, { novo: true });
 }
