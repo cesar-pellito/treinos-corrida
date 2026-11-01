@@ -6,10 +6,12 @@ import { irPara, recarregar } from "../router.js";
 import {
   ROTULO_TIPO, ROTULO_PERIODO, ROTULO_STATUS, ROTULOS_SUGERIDOS,
   alternarSessao, marcarSessao, editarSessao, desmarcarSessao,
-  alternarCorridaNaoFeita, registrarSessaoAvulsa, voltarAoPrevisto,
+  alternarCorridaNaoFeita, registrarSessaoAvulsa, voltarAoPrevisto, podeMover,
 } from "../../services/agenda.js";
+import { alternarCombinada, avisoDiaSeguinte } from "../../services/merge.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo, barraProgresso, metaItem, blocoEstrutura } from "./ui.js";
+import { sheetCombinada, sheetMover } from "./merge-ui.js";
 
 const ICONE = { feito: "✓", nao_feito: "✕", pulado: "↷" };
 const NOMES_DIA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
@@ -20,7 +22,7 @@ const ddmm = (iso) => {
 };
 
 /** Executa a ação, avisa se falhar e redesenha a tela mantendo o scroll. */
-async function agir(fn) {
+export async function agir(fn) {
   try { await fn(); }
   catch (e) { toast("Não foi possível salvar: " + (e && e.message)); }
   await recarregar();
@@ -80,11 +82,54 @@ function linha({ periodo, titulo, sub, status, onTitulo, controles, extra, movid
 export function linhaEntrada(entrada, data, { resumoCorrida } = {}) {
   if (entrada.tipo === "sessao") return linhaSessao(entrada, data);
   if (entrada.tipo === "corrida") return linhaCorrida(entrada, resumoCorrida);
+  if (entrada.tipo === "mesclada") return linhaCombinada(entrada);
   return linhaAvulsa(entrada);
+}
+
+/** Origem de um merge: aponta para a combinada, sem check próprio. */
+function linhaOrigemMesclada(entrada) {
+  const { item, merge, periodo } = entrada;
+  const sub = merge
+    ? `Mesclada → ${nomeDiaSemana(merge.data)} (${merge.rotulo})${merge.status === "feito" ? " · coberta" : ""}`
+    : "Mesclada";
+  return linha({
+    periodo,
+    titulo: tituloSessao(item.tipo, item.rotulo),
+    sub,
+    status: merge && merge.status === "feito" ? "mesclada-coberta" : "mesclada",
+    onTitulo: () => { if (merge) sheetCombinada(merge); },
+    controles: el("span", { class: "marca-mesclada", "aria-hidden": "true", text: "⇄" }),
+  });
+}
+
+/** A sessão combinada: check de 1 toque como as outras; tocar no nome abre o plano. */
+function linhaCombinada({ merge, periodo }) {
+  const acao = (st) => () => agir(() => alternarCombinada(merge, st));
+  const partes = ["Sessão combinada"];
+  if (merge.status) partes.push(ROTULO_STATUS[merge.status]);
+  if (merge.duracaoMin) partes.push(`${merge.duracaoMin} min`);
+  if (merge.rpe) partes.push(`RPE ${merge.rpe}`);
+  if (!merge.status && merge.plano) partes.push(`≈ ${merge.plano.minutos} min · ${merge.plano.series} séries`);
+  const avisoDia = el("span", { class: "agenda-linha__aviso" });
+  if (merge.status !== "feito") {
+    avisoDiaSeguinte(merge.data).then((t) => { if (t) avisoDia.textContent = "Dia seguinte pesado: " + t.charAt(0).toLowerCase() + t.slice(1); }).catch(() => {});
+  }
+  const no = linha({
+    periodo,
+    titulo: `Musculação — ${merge.rotulo}`,
+    sub: partes.join(" · "),
+    status: merge.status,
+    onTitulo: () => sheetCombinada(merge),
+    controles: botoesStatus(merge.status, { feito: acao("feito"), nao_feito: acao("nao_feito"), pulado: acao("pulado") }),
+  });
+  no.classList.add("agenda-linha--combinada");
+  no.querySelector(".agenda-linha__info").appendChild(avisoDia);
+  return no;
 }
 
 function linhaSessao(entrada, data) {
   const { item, log, periodo, remanejado, movimento } = entrada;
+  if (log && log.status === "mesclada") return linhaOrigemMesclada(entrada);
   const atual = log ? log.status : null;
   const acao = (st) => () => agir(() => alternarSessao(item, data, st, log));
   const movido = textoMovido(movimento, item, data);
@@ -185,15 +230,15 @@ function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
 // Folhas (bottom sheets)
 // ---------------------------------------------------------------------------
 
-const OPCOES_RPE = Array.from({ length: 10 }, (_, i) => ({ valor: i + 1, rotulo: String(i + 1) }));
+export const OPCOES_RPE = Array.from({ length: 10 }, (_, i) => ({ valor: i + 1, rotulo: String(i + 1) }));
 
-function inputMinutos(valor) {
+export function inputMinutos(valor) {
   return el("input", {
     type: "number", id: "sess-min", inputmode: "numeric", min: "0", step: "1",
     placeholder: "opcional", value: valor ?? "",
   });
 }
-const lerMinutos = (input) => (input.value ? Math.max(0, Math.round(Number(input.value))) : null);
+export const lerMinutos = (input) => (input.value ? Math.max(0, Math.round(Number(input.value))) : null);
 
 /** Detalhe de uma sessão: status, duração e RPE opcionais. */
 function sheetSessao({ item, data, log, avulsa, entrada }) {
@@ -225,11 +270,15 @@ function sheetSessao({ item, data, log, avulsa, entrada }) {
       })
     : null;
 
+  const moverPara = entrada && podeMover(entrada)
+    ? botao("Mover para…", { variante: "ghost", bloco: true, onClick: () => sheetMover(entrada, data) })
+    : null;
+
   const fechar = abrirSheet(titulo, el("div", { class: "stack" }, [
     status ? status.node : null,
     campo("Duração (min)", min),
     el("div", { class: "campo" }, [el("label", { text: "RPE (opcional)" }), rpe.node]),
-    el("div", { class: "lista-acoes" }, [salvar, voltar, remover]),
+    el("div", { class: "lista-acoes" }, [salvar, moverPara, voltar, remover]),
   ]));
 }
 
@@ -304,5 +353,13 @@ export function cardResumoSemana(r, { titulo = "Semana" } = {}) {
         detalhes.length ? el("span", { class: "muted pequeno", text: detalhes.join(" · ") }) : null,
       ]),
     ]),
+    textoMusculacao(r) ? el("p", { class: "sub pequeno semana-resumo__mus", text: textoMusculacao(r) }) : null,
   ]);
+}
+
+/** "Musculação: 4 de 4 cobertas (1 mesclada)" — só quando a semana teve merge. */
+export function textoMusculacao(r) {
+  const m = r.musculacao;
+  if (!m || !m.mescladas) return null;
+  return `Musculação: ${m.cobertas} de ${m.previstas} cobertas (${m.mescladas} mesclada${m.mescladas > 1 ? "s" : ""})`;
 }

@@ -9,6 +9,8 @@ import { hoje as hojeISO, somarDias, inicioDaSemana, deISODate, nomeDiaSemana } 
 import { irPara, recarregar } from "./router.js";
 import { el, card, botao, tituloVista, segmentos, barraProgresso, toast } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/agenda-ui.js";
+import { sheetJuntar } from "./components/merge-ui.js";
+import { pendentesDaSemana } from "../services/merge.js";
 import { ativarArrastar } from "./components/arrastar.js";
 import { renderCalendario } from "./calendar.js";
 import { renderEvolucao } from "./evolution.js";
@@ -115,6 +117,9 @@ async function renderSemana(container) {
   });
 
   container.appendChild(el("div", { class: "lista-acoes" }, [
+    pendentesDaSemana(r).length >= 2
+      ? botao("Juntar sessões", { bloco: true, onClick: () => sheetJuntar(ehAtual ? hoje : r.inicio) })
+      : null,
     botao("+ Treino fora da agenda", { bloco: true, onClick: () => sheetSessaoAvulsa(hoje) }),
     botao("Editar agenda semanal", { variante: "ghost", bloco: true, onClick: () => irPara("agenda") }),
   ]));

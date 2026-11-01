@@ -529,3 +529,33 @@ body.arrastando .slot--vazio.slot--alvo { border-color: transparent; background:
   box-shadow: 0 12px 32px rgba(0, 0, 0, .35); transform: scale(1.02);
 }
 .arrasto-indicador { position: fixed; z-index: 999; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+
+/* ---------- Merge de sessões (v4) ---------- */
+.agenda-linha--mesclada { border-style: dashed; border-color: var(--accent); }
+.agenda-linha--mesclada .agenda-linha__sub { color: var(--accent); }
+.agenda-linha--mesclada-coberta { border-style: dashed; border-color: var(--ok); }
+.agenda-linha--mesclada-coberta .agenda-linha__sub { color: var(--ok-ink); }
+.agenda-linha--combinada:not(.agenda-linha--feito) { box-shadow: inset 3px 0 0 var(--accent); }
+.agenda-linha__aviso { font-size: .8rem; color: var(--warn); font-weight: 600; }
+.agenda-linha__aviso:empty { display: none; }
+.marca-mesclada { width: var(--tap); text-align: center; color: var(--muted); font-size: 1.2rem; flex-shrink: 0; }
+.aviso-caixa { margin: 0; background: var(--warn-weak); color: var(--warn); padding: 10px 12px; border-radius: var(--radius-sm); font-weight: 600; font-size: .9rem; }
+.aviso-atraso { margin: 10px 0 0; color: var(--warn); }
+.texto-aviso { color: var(--warn); }
+.semana-resumo__mus { margin: 12px 0 0; }
+.merge-op {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+  padding: 10px 12px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.merge-op[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-weak); box-shadow: inset 3px 0 0 var(--accent); }
+.merge-plano { margin: 0; padding-left: 1.4rem; display: grid; gap: 6px; }
+.merge-plano li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.merge-plano__series { font-weight: 800; min-width: 2ch; }
+.merge-plano__nome { font-weight: 600; }
+.tag { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; background: var(--accent-weak); color: var(--accent); }
+.tag--fraca { background: var(--surface-2); color: var(--muted); }
+.merge-volume { display: grid; gap: 4px; }
+.merge-volume__linha { display: flex; justify-content: space-between; font-size: .9rem; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.merge-volume__linha.ok .strong { color: var(--ok); }
+.merge-sugestao { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 6px 6px 12px; }

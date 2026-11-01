@@ -39,6 +39,7 @@ const CASCA = [
   "./js/views/components/agenda-ui.js",
   "./js/views/components/arrastar.js",
   "./js/views/components/nutricao-ui.js",
+  "./js/views/components/merge-ui.js",
   "./js/services/schedule.js",
   "./js/services/dates.js",
   "./js/services/pace.js",

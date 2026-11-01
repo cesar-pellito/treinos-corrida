@@ -9,6 +9,8 @@ import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../services/dates.js"
 import { irPara } from "./router.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana, detalheCorrida } from "./components/agenda-ui.js";
+import { sheetJuntar } from "./components/merge-ui.js";
+import { pendentesDaSemana, atrasadasDaSemana } from "../services/merge.js";
 import { cardProteina, cardRefeicoesHoje } from "./components/nutricao-ui.js";
 
 function dataExtensa(iso) {
@@ -17,14 +19,23 @@ function dataExtensa(iso) {
   return `${dia.charAt(0).toUpperCase()}${dia.slice(1)}, ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function cardAgenda(entradas, data, resumoCorrida) {
+function cardAgenda(entradas, data, resumoCorrida, semana) {
   const filhos = [el("p", { class: "eyebrow", text: "Agenda de hoje" })];
   if (!entradas.length) {
     filhos.push(el("p", { class: "sub", text: "Nada previsto para hoje." }));
   } else {
     filhos.push(el("div", { class: "agenda-lista" }, entradas.map((e) => linhaEntrada(e, data, { resumoCorrida }))));
   }
+  // musculação atrasada na semana: oferece juntar duas pendentes numa só
+  const atrasadas = atrasadasDaSemana(semana, data);
+  if (atrasadas.length && pendentesDaSemana(semana).length >= 2) {
+    const nomes = atrasadas.map((p) => p.entrada.item.rotulo).join(", ");
+    filhos.push(el("p", { class: "sub pequeno aviso-atraso", text: `Ficou para trás nesta semana: ${nomes}.` }));
+  }
   filhos.push(el("div", { class: "agenda-acoes" }, [
+    atrasadas.length && pendentesDaSemana(semana).length >= 2
+      ? botao("Juntar sessões", { variante: "ghost", onClick: () => sheetJuntar(data) })
+      : null,
     botao("+ Treino fora da agenda", { variante: "ghost", onClick: () => sheetSessaoAvulsa(data) }),
   ]));
   return card(filhos);
@@ -71,7 +82,7 @@ export async function renderHoje(container) {
   container.appendChild(tituloVista("Hoje"));
   container.appendChild(el("p", { class: "hoje-data", text: dataExtensa(data) }));
 
-  container.appendChild(cardAgenda(entradas, data, resumoCorrida));
+  container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana));
   container.appendChild(cardProteina(nutricao));
   container.appendChild(cardRefeicoesHoje(nutricao));
   container.appendChild(cardResumoSemana(semana, { titulo: "Esta semana" }));
