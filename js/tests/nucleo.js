@@ -13,6 +13,7 @@ import { apagarDB, abrirDB, migrarPara1, migrarPara2, migrarPara3, DB_NOME, TODO
 import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as nutri from "../services/nutricao.js";
+import * as merge from "../services/merge.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
   parseTempoParaSegundos, formatarDuracao, validarRegistro,
@@ -824,6 +825,134 @@ export async function rodarTestes(seed, reportar) {
     await recusa({ origens: [o(ub, "2026-10-28"), { ...o(ua, "2026-10-29"), tipo: "corrida" }] }, "corrida");
     await recusa({ origens: [o(ub, "2026-10-28")] }, "uma sessão só");
     eq((await repo.contarTudo()).sessionMerges, 0, "nada gravado");
+  });
+
+  await test("merge: Lower A + Lower B sem duplicados, compostos primeiro, bi-set e dentro do teto", () => {
+    const s = merge.montarSugestao(["Lower A", "Lower B"]);
+    const nomes = s.itens.map((i) => i.nome);
+    eq(nomes.filter((n) => n === "Flexora").length, 1, "uma flexora só");
+    eq(nomes.filter((n) => n === "Panturrilha").length, 1, "uma panturrilha só");
+    eq(s.itens.slice(0, 3).map((i) => i.papel).join(","), "composto,composto,composto", "compostos primeiro");
+    eq(s.itens.slice(0, 3).map((i) => i.slot).join(","), "quad_composto,dobradica,quad_secundario");
+    const iExt = nomes.indexOf("Extensora");
+    eq(nomes[iExt + 1], "Flexora", "extensora e flexora juntas");
+    eq(s.itens[iExt].bisetCom, "Flexora", "em bi-set");
+    assert(s.series <= 20, `séries ${s.series} ≤ 20`);
+    assert(s.minutos <= 70, `minutos ${s.minutos} ≤ 70`);
+    eq(s.cortes.map((c) => c.nome).join(","), "Core,Adução", "acessórios saem primeiro");
+    eq(s.excede, false);
+    const vol = Object.fromEntries(s.volume.map((v) => [v.grupo, v]));
+    eq(vol.quadriceps.series, 10); eq(vol.quadriceps.meta, 10);
+    eq(vol.posterior_gluteo.series, 7); eq(vol.posterior_gluteo.meta, 8);
+    eq(vol.panturrilha.series, 3); eq(vol.panturrilha.meta, 6);
+    eq(s.volume.slice(0, 3).map((v) => v.grupo).join(","), "quadriceps,posterior_gluteo,panturrilha", "grupos com meta primeiro");
+
+    // teto menor: depois dos acessórios, corta séries de isoladores
+    const apertado = { ...merge.CONFIG_PADRAO, LIMITES: { ...merge.CONFIG_PADRAO.LIMITES, tetoSeries: 18 } };
+    const s2 = merge.montarSugestao(["Lower A", "Lower B"], apertado);
+    eq(s2.series, 18);
+    eq(s2.cortes.slice(0, 2).map((c) => c.tipo).join(","), "item,item");
+    eq(s2.cortes.slice(2).every((c) => c.tipo === "serie"), true, "depois, séries de isoladores");
+    eq(merge.montarSugestao(["Lower A", "Treino X"]).semConfig.join(), "Treino X", "rótulo sem configuração é avisado");
+  });
+
+  await test("merge: bloqueia feita, corrida/karatê, semanas diferentes e combinada fora da semana; avisa Upper + Lower", () => {
+    const item = (id, tipo, rotulo) => ({ id, tipo, rotulo, diaSemana: 1, periodo: "manha" });
+    const ses = (it, log = null) => ({ tipo: "sessao", item: it, log, remanejado: null, merge: null, periodo: "manha", ordem: 0 });
+    const la = ses(item("la", "musculacao", "Lower A"));
+    const lb = ses(item("lb", "musculacao", "Lower B"));
+    const ua = ses(item("ua", "musculacao", "Upper A"));
+    const inicio = "2026-10-26";
+    const v = (escolhidas, data = "2026-10-31") => merge.validarMerge({ escolhidas, data, inicio });
+    eq(v([{ entrada: la, data: "2026-10-29" }, { entrada: lb, data: "2026-11-01" }]).erros.length, 0, "Lower A + Lower B ok");
+    const feito = ses(item("lb", "musculacao", "Lower B"), { status: "feito" });
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: feito, data: "2026-11-01" }]).erros.length, "feita bloqueia");
+    assert(!merge.podeJuntar(feito));
+    const kar = ses(item("k", "karate", "Intenso"));
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: kar, data: "2026-10-27" }]).erros.length, "karatê bloqueia");
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: { tipo: "corrida", planned: {} }, data: "2026-10-29" }]).erros.length, "corrida bloqueia");
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: lb, data: "2026-11-08" }]).erros.length, "outra semana bloqueia");
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: lb, data: "2026-11-01" }], "2026-11-02").erros.length, "combinada fora da semana");
+    assert(v([{ entrada: la, data: "2026-10-29" }, { entrada: la, data: "2026-10-29" }]).erros.length, "a mesma sessão");
+    const ul = v([{ entrada: ua, data: "2026-10-26" }, { entrada: la, data: "2026-10-29" }]);
+    eq(ul.erros.length, 0, "Upper + Lower é permitido");
+    eq(ul.avisos[0], merge.AVISO_FULL_BODY, "com aviso de full body");
+
+    // dia seguinte
+    assert(merge.diaSeguintePesado([{ tipo: "corrida", planned: {} }]), "corrida no dia seguinte");
+    assert(merge.diaSeguintePesado([kar]), "karatê intenso no dia seguinte");
+    assert(!merge.diaSeguintePesado([ses(item("k2", "karate", "Leve"))]), "karatê leve não avisa");
+  });
+
+  await test("merge: caso de 31/10 — Lower A + B no sábado, Upper A para domingo, 4 de 4 cobertas (1 mesclada)", async () => {
+    await reset();
+    await seedMod.semearHub();
+    await repo.definirConfig("primeiroDiaSemana", 1);
+    const ag = await repo.listarAgenda();
+    const por = (r) => ag.find((i) => i.rotulo === r && i.tipo === "musculacao");
+    const SAB = "2026-10-31", DOM = "2026-11-01";
+    await agenda.marcarSessao(por("Upper B"), "2026-10-28", "feito");
+    await agenda.marcarSessao(por("Lower A"), "2026-10-29", "pulado");
+
+    let semana = await agenda.carregarSemana(SAB);
+    const pend = merge.pendentesDaSemana(semana);
+    eq(pend.map((p) => p.entrada.item.rotulo).join(","), "Upper A,Lower A,Lower B", "três pendentes");
+    eq(merge.atrasadasDaSemana(semana, SAB).map((p) => p.entrada.item.rotulo).join(","), "Upper A", "atrasada (pulada fica de fora)");
+    const escolhidas = pend.filter((p) => agenda.ehLower(p.entrada.item.rotulo));
+
+    // juntar e desfazer: volta ao estado de antes
+    let m = await merge.juntar({ escolhidas, data: SAB, periodo: "manha" });
+    eq(m.rotulo, "Lower A + Lower B");
+    eq(m.plano.itens.filter((i) => i.nome === "Flexora").length, 1, "snapshot da sugestão no merge");
+    semana = await agenda.carregarSemana(SAB);
+    eq(semana.musculacao.mescladas, 1);
+    eq(semana.musculacao.cobertas, 1, "combinada pendente: origens não contam ainda");
+    eq(semana.pulados, 0, "o pulado virou mesclada");
+    await merge.desfazer(m);
+    semana = await agenda.carregarSemana(SAB);
+    const laDepois = semana.dias[3].entradas.find((e) => e.item && e.item.rotulo === "Lower A");
+    eq(laDepois.log.status, "pulado", "Lower A voltou a pulado");
+    const lbDepois = semana.dias[6].entradas.find((e) => e.item && e.item.rotulo === "Lower B");
+    eq(lbDepois.log, null, "Lower B voltou sem registro");
+    eq(semana.musculacao.mescladas, 0);
+    eq(semana.dias[5].entradas.filter((e) => e.tipo === "mesclada").length, 0, "combinada sumiu do sábado");
+
+    // juntar de novo, reorganizar e cumprir a semana
+    m = await merge.juntar({ escolhidas: merge.pendentesDaSemana(await agenda.carregarSemana(SAB)).filter((p) => agenda.ehLower(p.entrada.item.rotulo)), data: SAB, periodo: "manha" });
+    semana = await agenda.carregarSemana(SAB);
+    const sab = semana.dias[5].entradas;
+    eq(sab[0].tipo, "mesclada", "combinada no sábado de manhã, antes da corrida");
+    const domingo = semana.dias[6].entradas.find((e) => e.item && e.item.rotulo === "Lower B");
+    eq(domingo.merge && domingo.merge.id, m.id, "origem aponta para a combinada");
+    assert(!agenda.podeMover(domingo), "origem mesclada não se move");
+
+    const reorg = merge.sugerirReorganizacao(semana, SAB);
+    eq(reorg.length, 1);
+    eq(reorg[0].entrada.item.rotulo, "Upper A");
+    eq(reorg[0].destino, DOM, "Upper A vai para o domingo (dia livre)");
+    await merge.aplicarReorganizacao(reorg[0]);
+
+    await merge.alternarCombinada(m, "feito");
+    await agenda.marcarSessao(por("Upper A"), DOM, "feito");
+    semana = await agenda.carregarSemana(SAB);
+    eq(semana.musculacao.previstas, 4);
+    eq(semana.musculacao.cobertas, 4, "4 de 4 cobertas");
+    eq(semana.musculacao.mescladas, 1, "1 mesclada");
+    eq(semana.lower, 2, "Lower 2 de 2");
+    eq(semana.naoFeitos + semana.pulados, 0, "nada perdido");
+    const extrasAntes = semana.extras;
+    eq(semana.dias[6].entradas.filter((e) => e.item && e.item.rotulo === "Upper A").length, 1, "Upper A no domingo");
+    eq(extrasAntes, 0, "a combinada não conta como extra");
+    let lancou = false;
+    try { await merge.desfazer(m); } catch { lancou = true; }
+    assert(lancou, "depois de feita não desfaz");
+
+    // backup traz o merge e o import não duplica
+    const dump = await repo.exportarTudo();
+    eq(dump.stores.sessionMerges.length, 2, "o desfeito vai como tombstone");
+    eq(dump.stores.sessionMerges.filter((x) => !x.removido).length, 1, "um merge ativo");
+    assert(dump.stores.sessionLogs.filter((s) => s.mergeId === m.id).length === 2, "vínculo das origens no backup");
+    eq((await repo.importarBackup(dump)).criados, 0, "reimportar não duplica");
   });
 
   await test("refeições: dia futuro recusado; mesmo dia e refeição duas vezes não duplica (ID estável)", async () => {

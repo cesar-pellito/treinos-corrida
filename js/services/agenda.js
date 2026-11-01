@@ -12,6 +12,10 @@
 //   - aderência: feitos / previstos. Opcional feito e sessão fora da agenda
 //     contam como extra; "pulado" aparece separado e não conta como feito
 //   - Lower: sessões de musculação FEITAS com rótulo "Lower…", em qualquer dia
+//   - sessão combinada (merge): não é um previsto novo nem extra. Cada origem
+//     continua prevista uma vez e segue o status da combinada: feita => as
+//     origens contam como feitas ("cobertas"); não feita/pulada => idem; pendente
+//     => pendente. Os Lower cobertos contam no "Lower X de 2".
 
 import * as repo from "../data/repository.js";
 import { hoje as hojeISO, diaDaSemana, inicioDaSemana, somarDias } from "./dates.js";
@@ -30,6 +34,9 @@ const ORDEM_PERIODO = { manha: 0, noite: 1 };
 
 export function ehLower(rotulo) {
   return /^lower\b/i.test(String(rotulo || "").trim());
+}
+export function ehUpper(rotulo) {
+  return /^upper\b/i.test(String(rotulo || "").trim());
 }
 
 /** Ordena itens da agenda pela semana (a partir de primeiroDiaSemana), período e ordem. */
@@ -90,9 +97,11 @@ function remanejamentoDe(item, sessoes, mov = null) {
  *   {tipo:'corrida', planned, periodo}      treino do plano de corrida naquela data
  *   {tipo:'avulsa', log, item?, credita}    sessão fora da agenda; `credita` = vale pelo
  *                                           `item` de outro dia (não conta como extra)
+ *   {tipo:'mesclada', merge}                sessão combinada (duas origens juntadas)
+ * Entradas 'sessao' cujo registro está "mesclada" trazem `merge` (a combinada).
  * Toda entrada traz `periodo` e `ordem` (posição dentro do período).
  */
-export function montarDia({ agenda, sessoes, corridas, movimentos = [], data }) {
+export function montarDia({ agenda, sessoes, corridas, movimentos = [], merges = [], data }) {
   const dow = diaDaSemana(data);
   const movs = movimentosPorItem(agenda, movimentos);
   const doDia = sessoes.filter((s) => s.data === data);
@@ -109,6 +118,7 @@ export function montarDia({ agenda, sessoes, corridas, movimentos = [], data }) 
     if (mov ? mov.data === data : item.diaSemana === dow) ocorrencias.push({ item, mov });
   }
 
+  const mergePorId = new Map(merges.map((m) => [m.id, m]));
   const entradas = [];
   for (const { item, mov } of ocorrencias) {
     const log = porItem.get(item.id) || null;
@@ -117,7 +127,11 @@ export function montarDia({ agenda, sessoes, corridas, movimentos = [], data }) 
       periodo: mov ? mov.periodo : item.periodo,
       ordem: mov ? mov.ordem : item.ordem || 0,
       remanejado: log ? null : remanejamentoDe(item, sessoes, mov),
+      merge: log && log.status === "mesclada" ? mergePorId.get(log.mergeId) || null : null,
     });
+  }
+  for (const m of merges.filter((x) => x.data === data)) {
+    entradas.push({ tipo: "mesclada", merge: m, periodo: m.periodo, ordem: m.ordem || 0 });
   }
   for (const w of corridas.filter((c) => c.dataPlanejada === data)) {
     entradas.push({ tipo: "corrida", periodo: w.periodo || periodoCorrida, ordem: w.ordemDia ?? 0, planned: w });
@@ -138,19 +152,27 @@ export function montarDia({ agenda, sessoes, corridas, movimentos = [], data }) 
 }
 
 /** Resumo de uma semana (puro). `inicio` é o primeiro dia da semana (ISO). */
-export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], inicio, metas }) {
+/** Status efetivo de uma entrada 'sessao' (origem mesclada segue a combinada). */
+export function statusDaSessao(e) {
+  if (e.log && e.log.status === "mesclada") return e.merge ? e.merge.status : null;
+  return e.log ? e.log.status : e.remanejado ? "feito" : null;
+}
+
+export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], merges = [], inicio, metas }) {
   const r = {
     inicio, fim: somarDias(inicio, 6), dias: [],
     previstos: 0, feitos: 0, pulados: 0, naoFeitos: 0, extras: 0,
     lower: 0, metaLower: metas.lowerPorSemana,
+    // musculação: "4 de 4 cobertas (1 mesclada)"
+    musculacao: { previstas: 0, cobertas: 0, mescladas: 0 },
   };
   for (let i = 0; i < 7; i++) {
     const data = somarDias(inicio, i);
-    const entradas = montarDia({ agenda, sessoes, corridas, movimentos, data });
+    const entradas = montarDia({ agenda, sessoes, corridas, movimentos, merges, data });
     r.dias.push({ data, entradas });
     for (const e of entradas) {
       if (e.tipo === "sessao") {
-        const st = e.log ? e.log.status : e.remanejado ? "feito" : null;
+        const st = statusDaSessao(e);
         if (e.item.opcional) {
           if (st === "feito") r.extras++;
         } else {
@@ -158,7 +180,15 @@ export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], inic
           if (st === "feito") r.feitos++;
           else if (st === "pulado") r.pulados++;
           else if (st === "nao_feito") r.naoFeitos++;
+          if (e.item.tipo === "musculacao") {
+            r.musculacao.previstas++;
+            if (st === "feito") r.musculacao.cobertas++;
+          }
         }
+        // origem coberta por uma combinada feita (o registro dela é "mesclada")
+        if (e.merge && st === "feito" && ehLower(e.item.rotulo)) r.lower++;
+      } else if (e.tipo === "mesclada") {
+        r.musculacao.mescladas++;
       } else if (e.tipo === "corrida") {
         r.previstos++;
         if (e.planned.status === "concluido") r.feitos++;
@@ -174,17 +204,18 @@ export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], inic
 }
 
 async function carregarBase(de, ate) {
-  const [agenda, sessoes, movimentos, plan, metas] = await Promise.all([
+  const [agenda, sessoes, movimentos, merges, plan, metas] = await Promise.all([
     repo.listarAgenda(),
     repo.listarSessoes({ de, ate }),
     repo.listarMovimentos({ de, ate }),
+    repo.listarMerges({ de, ate }),
     repo.planoAtivo(),
     obterMetas(),
   ]);
   const corridas = plan
     ? (await repo.listarPlanned({ planId: plan.id })).filter((w) => w.dataPlanejada >= de && w.dataPlanejada <= ate)
     : [];
-  return { agenda, sessoes, movimentos, corridas, metas };
+  return { agenda, sessoes, movimentos, merges, corridas, metas };
 }
 
 export async function primeiroDiaSemana() {
@@ -288,7 +319,7 @@ export function desmarcarSessao(log) {
  * outro dia (remanejado) e treino fora da agenda.
  */
 export function podeMover(entrada) {
-  if (entrada.tipo === "sessao") return !entrada.remanejado;
+  if (entrada.tipo === "sessao") return !entrada.remanejado && !(entrada.log && entrada.log.status === "mesclada");
   if (entrada.tipo === "corrida") return entrada.planned.status !== "concluido";
   return false;
 }
