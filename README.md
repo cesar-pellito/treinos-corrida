@@ -35,6 +35,8 @@ Regra de ouro: a UI nunca toca no IndexedDB. Tudo passa por `js/data/repository.
 - Hub: exclusão é **lógica** (`removido: true`, o *tombstone*). O import de backup não tem DELETE: um registro apagado de verdade voltaria ao importar um backup antigo. As listagens filtram removidos.
 - Hub: registros guardam um **snapshot** do que era previsto (tipo, rótulo, período; macros estimadas da refeição). Editar a agenda vale daqui para frente e não reescreve o histórico.
 - A agenda-padrão é semeada com **UUIDs fixos** gerados uma vez com `crypto.randomUUID()` (`js/data/seed-hub.js`): reinstalar ou restaurar um backup não duplica.
+- Merge: as sessões de origem **nunca são apagadas**; o registro delas ganha status `mesclada` e `mergeId`, e a combinada guarda as origens com o registro de antes. Juntar e desfazer são uma transação só. Origem mesclada não muda pelo check, não se move e não entra em outro merge.
+- Refeições: nunca num dia futuro. Registros novos usam o ID estável `refeicao:<data>:<refeicaoId>` (os antigos mantêm o UUID); se um backup trouxer dois para a mesma (data, refeição), vale o de `atualizadoEm` mais recente.
 
 ### Unidades e datas
 Internamente: distância em **metros**, duração em **segundos**, timestamps ISO. Formatação (km, `mm:ss`, `6:48 /km`) só na camada de apresentação. Datas de calendário em ISO **tratadas em fuso local** (`js/services/dates.js`) para evitar o clássico bug de `new Date('2026-08-03')` virar o dia anterior por interpretação UTC.
@@ -48,11 +50,12 @@ styles/app.css                design system (tema claro/escuro)
 js/
   app.js                      bootstrap: SW, tema, seed do hub, onboarding/roteamento
   data/  db.js repository.js seed.js seed-hub.js plano-alimentar.js
+         sessoes-musculacao.js   configuração editável do "Juntar sessões"
   services/  dates pace schedule stats discomfort ics backup theme dominio
-             agenda metas nutricao
+             agenda metas nutricao merge
   views/  router today treinos nutricao calendar evolution history settings help
           workout-form workout-detail onboarding agenda-editor metas-editor
-          components/ ui.js charts.js agenda-ui.js nutricao-ui.js
+          components/ ui.js charts.js agenda-ui.js nutricao-ui.js merge-ui.js arrastar.js
   tests/ nucleo.js            asserções do núcleo (rodam em test.html)
 ```
 
@@ -60,7 +63,7 @@ js/
 
 ## 2. Modelo de dados
 
-IndexedDB `treinos-corrida`, **versão 3**. Cada migração só adiciona stores (`if (versaoAntiga < N)` em `db.js`); os stores existentes não são tocados.
+IndexedDB `treinos-corrida`, **versão 4**. Cada migração só adiciona stores (`if (versaoAntiga < N)` em `db.js`); os stores existentes não são tocados.
 
 **Corrida (v1):** `plans`, `phases`, `plannedWorkouts`, `completedWorkouts`, `discomforts`, `settings`. Dados **planejados** e **realizados** são separados por design — registrar nunca sobrescreve o plano. A região de desconforto **fáscia plantar / calcanhar** é própria, separada de "pé", por causa do histórico de fascite plantar.
 
@@ -72,6 +75,9 @@ IndexedDB `treinos-corrida`, **versão 3**. Cada migração só adiciona stores 
 | `sessionLogs` | check de musculação e karatê | `data`, `scheduleItemId` (null = fora da agenda), snapshot `tipo`/`rotulo`/`periodo`/`opcional`, `status` (`feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?` |
 | `foodLogs` | refeições do plano e proteína extra | `data`, `tipo` (`refeicao`/`extra`); refeição: `refeicaoId`, `varianteIndex`, `varianteNome`, `fracao` (1, ¾, ½, ¼), snapshot `macros {kcal, prot, carb, gord}`, `escolhas?` (do montar prato); extra: `proteinaG`, `descricao?` |
 | `scheduleMoves` (v3) | item da agenda arrastado para outro dia/período **numa semana** | `scheduleItemId`, `dataOrigem` (o dia previsto), `data` (destino, mesma semana), `periodo`, `ordem` (posição no período). Um por (item, `dataOrigem`) |
+| `sessionMerges` (v4) | sessão combinada: duas sessões de musculação juntadas numa só | `data`, `periodo`, `rotulo` ("Lower A + Lower B"), `origens` [`scheduleItemId`, `rotulo`, `dataOcorrencia`, `dataOrigem`, `logAnterior`], `plano` (snapshot da sugestão), `status` (null = pendente, `feito`/`nao_feito`/`pulado`), `duracaoMin?`, `rpe?`, `removido` (merge desfeito) |
+
+Em `sessionLogs`, o status `mesclada` (v4) marca a origem de um merge, com `mergeId` apontando para a combinada. Em `foodLogs`, `data` é o dia a que o registro se refere e `criadoEm`/`atualizadoEm` dizem quando foi lançado.
 
 A corrida arrastada não usa `scheduleMoves`: o próprio `plannedWorkout` é reagendado (mesmas regras de `dataOriginal`/`sequence`) e ganha `periodo` e `ordemDia` opcionais.
 
@@ -85,9 +91,9 @@ Cada registro carrega `criadoEm` e `atualizadoEm`; o import de backup usa `atual
 
 Barra inferior: **Hoje · Treinos · Nutrição · Ajustes**.
 
-- **Hoje:** agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida (tocar abre objetivo, RPE, zona, fase e a estrutura do treino).
-- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas; **segurar e arrastar** um treino o leva para outro dia ou período da mesma semana, inclusive para ficar antes ou depois de outro no mesmo período), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
-- **Nutrição** (porte do App_Dieta): *Refeições* — abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia, e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
+- **Hoje:** se ontem ficou sem nenhuma refeição, um aviso discreto "Ontem ficou sem registro. Completar?" leva ao dia (✕ dispensa); agenda do dia com check de 1 toque (✓ feito, ✕ não feito, ↷ pulado; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida (tocar abre objetivo, RPE, zona, fase e a estrutura do treino).
+- **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas; **segurar e arrastar** um treino o leva para outro dia ou período da mesma semana, inclusive para ficar antes ou depois de outro no mesmo período; "Mover para…" na folha da sessão faz o mesmo sem arrastar; **"Juntar sessões"** junta duas de musculação pendentes — também aparece no Hoje quando há musculação atrasada), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
+- **Nutrição** (porte do App_Dieta): *Refeições* — seletor ‹ dia › com calendário (padrão hoje, futuro bloqueado); num dia passado aparecem a proteína do dia, as 4 refeições com ✓ de 1 toque e o plano, tudo gravando naquele dia; abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia (tocar num dia abre o registro dele; dia vazio mostra "sem registro · completar"), e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
 - **Ajustes:** Agenda semanal, Metas, preferências da corrida, `.ics`, backup e "Recomeçar o plano de corrida".
 
 A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os itens `corrida` da agenda só indicam dia e período. O ✓ da corrida leva ao formulário de registro de sempre, e o ✕ marca "não realizado".
@@ -101,6 +107,12 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 - **Proteína do dia:** soma de `macros.prot × fração` das refeições registradas mais a proteína extra. As macros vêm da tabela de **estimativas** por refeição e variante (`MACROS` em `js/data/plano-alimentar.js`), não são valores oficiais da nutricionista, e a interface sempre mostra o selo "estimativa".
 - **Bateu a meta:** proteína do dia ≥ mínimo configurado em Metas.
 - **Média semanal de proteína:** só dos dias com algum registro; dias sem registro aparecem à parte, para que esquecer de lançar não pareça dia de proteína baixa.
+- **Média de 7 dias:** os 7 dias que terminam no dia exibido, com a mesma regra: dia sem registro fica **fora** da média (não entra como zero). Aparece no card de proteína do Hoje e da Nutrição.
+- **Registro retroativo:** qualquer dia passado pode ser lançado, editado ou removido, sem limite para trás (o upsert por dia e refeição e a exclusão lógica tornam isso seguro). O que foi lançado depois do dia ganha um 🕐 discreto e vale igual.
+- **Sessão combinada (merge):** duas sessões de **musculação** pendentes (sem registro, não feitas ou puladas) da **mesma semana** viram uma, num dia dessa semana. Corrida, karatê e sessões feitas não entram. Upper + Lower é permitido, com aviso de full body longo. A combinada não é um previsto novo nem extra: cada origem continua prevista uma vez e segue o status dela — combinada feita = as duas origens **cobertas** (contam como feitas e, se Lower, no "Lower X de 2"); pendente = pendentes; não feita/pulada = idem. O resumo mostra "Musculação: 4 de 4 cobertas (1 mesclada)". Dá para desfazer enquanto a combinada não estiver feita: as origens voltam exatamente como estavam.
+- **Sugestão da combinada:** vem de `js/data/sessoes-musculacao.js` (itens obrigatórios e acessórios por sessão — edite à vontade). Une os itens das duas sessões com **um por slot** (uma flexora e uma panturrilha só), compostos primeiro, isoladores depois, bi-set extensora + flexora; se passar de ~20 séries ou de 70 min, corta acessórios primeiro (adução, core) e depois séries de isoladores. Mostra o volume por grupo contra a meta semanal (quadríceps ~10, posterior e glúteo ~8, panturrilha ~6). É o plano; o volume real continua no Gravl.
+- **Dia seguinte pesado:** corrida ou karatê intenso no dia seguinte à combinada mostra "Deixe 2 a 3 repetições na reserva, sem dropset e sem falha."
+- **Reorganizar a semana:** depois do merge, as sessões de musculação de dias passados que ficaram pendentes podem ir para um dia livre (sem musculação) de hoje em diante.
 
 ### Plano alimentar
 O `PLANO` do App_Dieta foi copiado **sem alteração** para `js/data/plano-alimentar.js` (só ganhou `export`), com o comentário de manutenção original: quantidades literais do PDF, `quantidade: null` quando o PDF não informa, blocos que se somam e opções excludentes dentro do bloco. O `App_Dieta/` continua na pasta como referência.
@@ -172,7 +184,7 @@ Ao reagendar treinos, reexporte e reimporte no calendário dedicado (no Google, 
 
 ## 7. Backup
 
-Os dados ficam só no aparelho; o backup é um arquivo JSON com todos os stores (corrida, agenda, sessões e refeições).
+Os dados ficam só no aparelho; o backup é um arquivo JSON com todos os stores (corrida, agenda, sessões, sessões combinadas e refeições — com o status `mesclada`, o vínculo `mergeId` e os merges desfeitos como tombstone).
 
 - **Exportar:** **Ajustes → Exportar backup (JSON)**. O celular abre o menu de compartilhar: salve no **Google Drive** ou no app **Arquivos**. Se o compartilhar não estiver disponível, o arquivo é baixado; em último caso, o conteúdo vai para a área de transferência.
 - **Restaurar ou trocar de aparelho:** **Ajustes → Importar backup (JSON)**. O merge é por ID com last-write-wins: importar duas vezes não duplica, e um backup antigo não sobrescreve dado mais novo. Um backup feito antes do hub (só corrida) importa normalmente.
@@ -187,6 +199,8 @@ Os dados ficam só no aparelho; o backup é um arquivo JSON com todos os stores 
 Abra **`test.html`** (servido por HTTP) — roda asserções em JS puro contra a camada de dados e serviços, e mostra ✓/✗. Cobre: CRUD nos seis stores da corrida; cálculo de pace com bordas (distância/tempo zero, vírgula decimal); registrar não altera o planejado além do status; alterar o plano não mexe no realizado; reagendar preserva `dataOriginal`; importar backup não duplica e respeita last-write-wins; trava de duplicação; aderência com semana parcial/vazia; recorrência de desconforto com poucos treinos; `.ics` com `SEQUENCE` e `UID` estável; virada de mês/ano.
 
 Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla, validação e descarte de campos antigos; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; remanejamento de treino fora da agenda; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato.
+
+v4: **migração v3→v4** a partir de um banco v3 com dados em todos os stores (registros idênticos byte a byte, índices funcionando, `sessionMerges` vazio); merge no repository (origens `mesclada` com vínculo, desfazer restaurando sem registro / não feito / pulado, recusa depois de feita); bloqueios (feita, corrida, karatê, semanas diferentes, combinada fora da semana, a mesma sessão duas vezes) e aviso de Upper + Lower; sugestão Lower A + Lower B sem duplicados, compostos primeiro, bi-set, dentro do teto e cortes em ordem; aviso do dia seguinte; o caso de 31/10 de ponta a ponta (juntar, desfazer, juntar de novo, Upper A para domingo, "4 de 4 cobertas (1 mesclada)", Lower 2 de 2, backup sem duplicar); registro retroativo atualizando o total do dia e a média de 7 dias; dia sem registro fora da média; registrar duas vezes o mesmo dia e refeição sem duplicar; dia futuro recusado; lembrete de lacuna; duplicado de backup contado uma vez.
 
 > `test.html` apaga e recria o banco da origem em que roda. Rode em `localhost`, nunca na URL do GitHub Pages onde estão seus dados.
 
@@ -239,6 +253,25 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Semana: dias na meta e média contam só dias com registro.
 - [ ] Orientações mostra hidratação, refeição livre, orientações e links.
 
+**Juntar sessões (merge)**
+- [ ] Ao atualizar para a v4, **todos os dados continuam** (corrida, agenda, sessões, refeições, treinos movidos).
+- [ ] "Juntar sessões" aparece em Treinos → Semana (2+ pendentes) e no Hoje (musculação atrasada); vem com Lower A + Lower B marcados.
+- [ ] A prévia mostra uma flexora e uma panturrilha só, compostos primeiro, bi-set, ~20 séries, minutos, volume × meta e o que foi cortado.
+- [ ] Dia seguinte com corrida ou karatê intenso mostra o aviso de reps na reserva; Upper + Lower mostra o aviso de full body.
+- [ ] Depois de juntar, "Reorganizar a semana" leva a sessão atrasada para um dia livre.
+- [ ] As origens aparecem como "Mesclada → sábado" sem check; a combinada tem ✓ ✕ ↷.
+- [ ] Com a combinada feita: "Musculação: 4 de 4 cobertas (1 mesclada)" e "Lower 2 de 2".
+- [ ] "Desfazer merge" devolve as duas sessões como estavam; com a combinada feita, não desfaz.
+- [ ] "Mover para…" na folha da sessão muda dia e período sem arrastar.
+
+**Registro retroativo de refeições**
+- [ ] Nutrição → Refeições: ‹ › e o calendário trocam o dia; › e o calendário não vão além de hoje.
+- [ ] Num dia passado, ✓ numa refeição soma na hora no total do dia e na média de 7 dias; tocar de novo desfaz.
+- [ ] Marcar de novo a mesma refeição no mesmo dia edita, não duplica.
+- [ ] Dia sem registro aparece como "sem registro" e fica fora da média.
+- [ ] O que foi lançado depois do dia mostra 🕐.
+- [ ] Hoje mostra "Ontem ficou sem registro. Completar?" quando ontem está vazio; ✕ some com o aviso.
+
 **Backup**
 - [ ] Exportar backup abre o compartilhar; salvar no Drive ou no Arquivos funciona.
 - [ ] Importar o backup em outro navegador traz corrida, agenda, sessões e refeições, sem duplicar.
@@ -249,6 +282,18 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Atualização do banco com outra aba aberta mostra "Atualizando os dados do app…" e conclui ao fechar a outra aba (não dá erro).
 - [ ] Datas corretas na **virada de mês e de ano** (sem bug de UTC).
 - [ ] Tempo até interativo abaixo de ~1s em conexão comum.
+
+### Roteiro rápido no celular (v4)
+
+Antes: **Ajustes → Exportar backup**. Depois abra o app, toque em "Atualizar" quando aparecer e confira que a semana e as refeições continuam lá.
+
+1. **Caso de 31/10.** Em Treinos → Semana, deixe o Lower A de quinta sem marcar (ou ✕) e o Lower B de domingo pendente. Toque em **Juntar sessões**: Lower A e Lower B vêm marcados. Escolha **sáb**, **Manhã**, confira a prévia (uma flexora, uma panturrilha, ~20 séries) e toque em **Juntar**.
+2. Na folha **Reorganizar a semana**, mova o **Upper A → domingo**. A semana mostra a combinada no sábado, Lower A e Lower B como "Mesclada → sábado" e o Upper A no domingo ("Movido de segunda").
+3. Toque no nome da combinada: confira o plano e o botão **Desfazer merge**. Desfaça, veja as duas sessões voltarem, e junte de novo.
+4. Marque ✓ na combinada e no Upper A: o resumo mostra **"Musculação: 4 de 4 cobertas (1 mesclada)"** e **Lower 2 de 2**.
+5. **Refeições de um dia anterior.** Em Nutrição → Refeições, toque em ‹ até um dia passado (ou no 📅). Marque ✓ em duas refeições: a proteína do dia e a **média de 7 dias** mudam na hora, e as refeições ganham 🕐. Tente › além de hoje: não deixa.
+6. Em Nutrição → Semana, o dia completado mostra 🕐; um dia vazio mostra "sem registro · completar" e abre o dia ao tocar.
+7. Se ontem ficou vazio, a tela Hoje mostra "Ontem ficou sem registro. Completar?".
 
 ---
 
