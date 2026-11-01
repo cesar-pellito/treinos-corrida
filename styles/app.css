@@ -559,3 +559,21 @@ body.arrastando .slot--vazio.slot--alvo { border-color: transparent; background:
 .merge-volume__linha { display: flex; justify-content: space-between; font-size: .9rem; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .merge-volume__linha.ok .strong { color: var(--ok); }
 .merge-sugestao { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 6px 6px 12px; }
+
+/* ---------- Registro retroativo de refeições (v4) ---------- */
+.dia-nav { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 10px; }
+.dia-nav > .btn { min-width: var(--tap); font-size: 1.3rem; padding: 6px 12px; }
+.dia-nav > .btn:disabled { opacity: .3; }
+.dia-nav__centro { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--tap); cursor: pointer; }
+/* o input de data cobre o rótulo: tocar abre o calendário nativo */
+.dia-nav__input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.dia-nav__cal { font-size: .95rem; }
+.nutri-plano-cab { margin: 18px 0 8px; }
+.media-7d { margin: 4px 0 0; }
+.dia-proteina--btn { width: 100%; padding: 4px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+.dia-proteina--btn:active { background: var(--surface-2); }
+.dia-proteina__vazio { color: var(--accent); font-weight: 600; }
+.aviso-lacuna { display: flex; align-items: center; gap: 4px; margin: -4px 0 12px; padding: 2px 2px 2px 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+.aviso-lacuna__texto { flex: 1; padding: 8px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
+.aviso-lacuna__acao { color: var(--accent); font-weight: 650; }
+.aviso-lacuna__x { min-height: 36px; padding: 4px 10px; color: var(--muted); }

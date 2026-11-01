@@ -4,9 +4,10 @@
 import * as repo from "../data/repository.js";
 import { resumoHoje } from "../services/schedule.js";
 import { carregarDia, carregarSemana } from "../services/agenda.js";
-import { carregarDia as carregarDiaNutricao } from "../services/nutricao.js";
+import { carregarDia as carregarDiaNutricao, lacunaOntem, dispensarLacuna } from "../services/nutricao.js";
+import { abrirDiaNutricao } from "./nutricao.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../services/dates.js";
-import { irPara } from "./router.js";
+import { irPara, recarregar } from "./router.js";
 import { el, card, botao, tituloVista } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana, detalheCorrida } from "./components/agenda-ui.js";
 import { sheetJuntar } from "./components/merge-ui.js";
@@ -69,18 +70,34 @@ function cardProximaCorrida(resumo) {
   ]);
 }
 
+/** "Ontem ficou sem registro. Completar?" — discreto; ✕ dispensa para aquele dia. */
+function avisoLacuna(ontem) {
+  return el("div", { class: "aviso-lacuna", role: "status" }, [
+    el("button", { type: "button", class: "aviso-lacuna__texto", onClick: () => abrirDiaNutricao(ontem) }, [
+      el("span", { text: "Ontem ficou sem registro. " }),
+      el("span", { class: "aviso-lacuna__acao", text: "Completar?" }),
+    ]),
+    el("button", {
+      type: "button", class: "btn btn--ghost aviso-lacuna__x", "aria-label": "Dispensar aviso", text: "✕",
+      onClick: async () => { await dispensarLacuna(ontem); await recarregar(); },
+    }),
+  ]);
+}
+
 export async function renderHoje(container) {
   const data = hojeISO();
   const plan = await repo.planoAtivo();
-  const [entradas, semana, resumoCorrida, nutricao] = await Promise.all([
+  const [entradas, semana, resumoCorrida, nutricao, lacuna] = await Promise.all([
     carregarDia(data),
     carregarSemana(data),
     plan ? resumoHoje(plan, data) : Promise.resolve(null),
     carregarDiaNutricao(data),
+    lacunaOntem(data),
   ]);
 
   container.appendChild(tituloVista("Hoje"));
   container.appendChild(el("p", { class: "hoje-data", text: dataExtensa(data) }));
+  if (lacuna) container.appendChild(avisoLacuna(lacuna));
 
   container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana));
   container.appendChild(cardProteina(nutricao));

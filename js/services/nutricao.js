@@ -9,11 +9,14 @@
 //   - bateu a meta: proteína do dia ≥ mínimo configurado em Metas
 //   - média semanal: só dos dias com algum registro; dias sem registro aparecem
 //     à parte (esquecer de lançar não vira "dia de proteína baixa")
+//   - média de 7 dias: os 7 dias até o dia escolhido, também só os com registro
+//   - registro retroativo: qualquer dia passado pode ser lançado ou corrigido;
+//     o que foi lançado depois do dia ganha um 🕐 e vale como qualquer outro
 
 import * as repo from "../data/repository.js";
 import { PLANO, MACROS, ROTULO_CURTO, ROTULO_HORA } from "../data/plano-alimentar.js";
 import { obterMetas } from "./metas.js";
-import { hoje as hojeISO, somarDias, inicioDaSemana } from "./dates.js";
+import { hoje as hojeISO, somarDias, inicioDaSemana, paraISODate } from "./dates.js";
 
 export { PLANO, ROTULO_CURTO, ROTULO_HORA };
 
@@ -142,6 +145,49 @@ export function proteinaDoDia(registros) {
 }
 
 /**
+ * Uma refeição por (data, refeição): se um backup de outro aparelho trouxe um
+ * segundo registro para o mesmo dia e refeição, vale o mais recente.
+ */
+export function semDuplicadas(registros) {
+  const grupos = new Map();
+  const r = [];
+  for (const x of registros) {
+    if (x.tipo !== "refeicao") { r.push(x); continue; }
+    const k = `${x.data}|${x.refeicaoId}`;
+    if (!grupos.has(k)) { grupos.set(k, []); r.push(k); }
+    grupos.get(k).push(x);
+  }
+  return r.map((x) => (typeof x === "string" ? repo.registroVigente(grupos.get(x)) : x)).filter((x) => x && !x.removido);
+}
+
+/** Lançado depois do dia a que se refere? (data local de criadoEm > data) */
+export function registradoDepois(r) {
+  return !!(r && r.criadoEm && paraISODate(new Date(r.criadoEm)) > r.data);
+}
+
+/**
+ * Média móvel de 7 dias (puro): os 7 dias que terminam em `dataRef`. Dias sem
+ * nenhum registro ficam FORA da média (aparecem como "sem registro"), e dias
+ * futuros não contam.
+ */
+export function mediaMovel7d({ registros, dataRef, hoje = hojeISO() }) {
+  const dias = [];
+  for (let i = 6; i >= 0; i--) {
+    const data = somarDias(dataRef, -i);
+    if (data > hoje) continue;
+    const doDia = registros.filter((r) => r.data === data && !r.removido);
+    dias.push({ data, proteina: doDia.length ? proteinaDoDia(doDia) : null });
+  }
+  const com = dias.filter((d) => d.proteina != null);
+  return {
+    dias,
+    media: com.length ? Math.round(com.reduce((a, d) => a + d.proteina, 0) / com.length) : null,
+    diasComRegistro: com.length,
+    diasSemRegistro: dias.length - com.length,
+  };
+}
+
+/**
  * Semana de proteína (puro). Dias futuros ficam de fora; dias sem nenhum
  * registro não entram na média nem contam como "não bateu".
  */
@@ -152,7 +198,10 @@ export function resumirSemanaProteina({ registros, inicio, metas, hoje = hojeISO
     if (data > hoje) { dias.push({ data, futuro: true, proteina: null, bateu: false }); continue; }
     const doDia = registros.filter((r) => r.data === data && !r.removido);
     const proteina = doDia.length ? proteinaDoDia(doDia) : null;
-    dias.push({ data, futuro: false, proteina, bateu: proteina != null && proteina >= metas.proteinaMinG });
+    dias.push({
+      data, futuro: false, proteina, bateu: proteina != null && proteina >= metas.proteinaMinG,
+      retroativo: doDia.some(registradoDepois),
+    });
   }
   const comRegistro = dias.filter((d) => d.proteina != null);
   const media = comRegistro.length ? Math.round(comRegistro.reduce((a, d) => a + d.proteina, 0) / comRegistro.length) : null;
@@ -170,15 +219,20 @@ export function resumirSemanaProteina({ registros, inicio, metas, hoje = hojeISO
 // Leitura (via repository)
 // ---------------------------------------------------------------------------
 
-/** Tudo de um dia: registros por refeição, extras e totais. */
+/** Tudo de um dia: registros por refeição, extras, totais e a média dos 7 dias até ele. */
 export async function carregarDia(data = hojeISO()) {
-  const [registros, metas] = await Promise.all([repo.listarRegistrosAlimentares({ de: data, ate: data }), obterMetas()]);
+  const [semana, metas] = await Promise.all([
+    repo.listarRegistrosAlimentares({ de: somarDias(data, -6), ate: data }).then(semDuplicadas),
+    obterMetas(),
+  ]);
+  const registros = semana.filter((r) => r.data === data);
   const porRefeicao = {};
   for (const r of registros) if (r.tipo === "refeicao") porRefeicao[r.refeicaoId] = r;
   return {
     data, registros, porRefeicao,
     extras: registros.filter((r) => r.tipo === "extra"),
     totais: totaisDoDia(registros),
+    media7d: mediaMovel7d({ registros: semana, dataRef: data }),
     metas,
   };
 }
@@ -189,7 +243,7 @@ export async function carregarSemanas(n = 4, hoje = hojeISO()) {
   const atual = inicioDaSemana(hoje, pds);
   const de = somarDias(atual, -7 * (n - 1));
   const [registros, metas] = await Promise.all([
-    repo.listarRegistrosAlimentares({ de, ate: somarDias(atual, 6) }),
+    repo.listarRegistrosAlimentares({ de, ate: somarDias(atual, 6) }).then(semDuplicadas),
     obterMetas(),
   ]);
   const semanas = [];
@@ -197,6 +251,26 @@ export async function carregarSemanas(n = 4, hoje = hojeISO()) {
     semanas.push(resumirSemanaProteina({ registros, inicio: somarDias(atual, -7 * k), metas, hoje }));
   }
   return semanas;
+}
+
+/**
+ * Lembrete de lacuna: devolve a data de ontem se ontem ficou sem nenhum registro,
+ * o aviso não foi dispensado para esse dia e houve algum registro nos 30 dias
+ * antes (para não cobrar quem ainda não começou a lançar). Senão, null.
+ */
+export async function lacunaOntem(hoje = hojeISO()) {
+  const ontem = somarDias(hoje, -1);
+  const [registros, dispensada] = await Promise.all([
+    repo.listarRegistrosAlimentares({ de: somarDias(ontem, -30), ate: ontem }),
+    repo.obterConfig("lacunaDispensada", null),
+  ]);
+  if (dispensada === ontem) return null;
+  if (registros.some((r) => r.data === ontem)) return null;
+  return registros.length ? ontem : null;
+}
+
+export function dispensarLacuna(data) {
+  return repo.definirConfig("lacunaDispensada", data);
 }
 
 /** Variante usada da última vez nesta refeição (padrão do registro de 1 toque). */

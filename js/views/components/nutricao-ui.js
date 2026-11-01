@@ -4,12 +4,15 @@
 import { recarregar, irPara } from "../router.js";
 import {
   refeicoes, nomeVariante, macrosEstimados, refeicaoDoHorario,
-  registrarRefeicao, registrarProteinaExtra, desfazerRegistro, ultimaVariante,
+  registrarRefeicao, registrarProteinaExtra, desfazerRegistro, ultimaVariante, registradoDepois,
   FRACOES, ROTULO_CURTO, ROTULO_HORA,
 } from "../../services/nutricao.js";
 import { el, botao, abrirSheet, seletorBotoes, toast, campo } from "./ui.js";
 
 const fmtG = (n) => `${Math.round(n)} g`;
+
+/** Marca discreta de "lançado depois do dia" (não muda nenhum cálculo). */
+export const ICONE_DEPOIS = "🕐";
 
 async function agir(fn) {
   try { await fn(); }
@@ -30,15 +33,18 @@ export function faixaMeta(valor, min, max) {
 // ---------------------------------------------------------------------------
 // Card: proteína do dia
 // ---------------------------------------------------------------------------
-export function cardProteina(dia) {
-  const { totais, metas, extras } = dia;
+export function cardProteina(dia, { titulo = "Proteína hoje" } = {}) {
+  const { totais, metas, extras, media7d } = dia;
   const p = totais.proteina;
   const situacao = p >= metas.proteinaMinG
     ? (p > metas.proteinaMaxG ? "acima da faixa" : "dentro da faixa")
     : `faltam ${fmtG(metas.proteinaMinG - p)} para o mínimo`;
+  const textoMedia = media7d && media7d.media != null
+    ? `Média de 7 dias: ${fmtG(media7d.media)} (${media7d.diasComRegistro} ${media7d.diasComRegistro === 1 ? "dia" : "dias"} com registro${media7d.diasSemRegistro ? `; ${media7d.diasSemRegistro} sem registro, fora da média` : ""})`
+    : null;
   return el("section", { class: "card" }, [
     el("div", { class: "row-between" }, [
-      el("p", { class: "eyebrow", text: "Proteína hoje" }),
+      el("p", { class: "eyebrow", text: titulo }),
       el("span", { class: "selo-estimativa", text: "estimativa" }),
     ]),
     el("div", { class: "proteina-topo" }, [
@@ -48,6 +54,7 @@ export function cardProteina(dia) {
     faixaMeta(p, metas.proteinaMinG, metas.proteinaMaxG),
     el("p", { class: "sub pequeno", style: { marginTop: "8px" }, text:
       `${situacao} · refeições ${fmtG(totais.proteinaRefeicoes)}${totais.proteinaExtra ? ` + extra ${fmtG(totais.proteinaExtra)}` : ""} · ≈ ${totais.kcal} kcal` }),
+    textoMedia ? el("p", { class: "sub pequeno media-7d", text: textoMedia }) : null,
     extras.length
       ? el("div", { class: "extras-lista" }, extras.map((x) =>
           el("div", { class: "extra-item" }, [
@@ -67,13 +74,13 @@ export function cardProteina(dia) {
 // ---------------------------------------------------------------------------
 // Card: refeições do dia (a do horário em destaque)
 // ---------------------------------------------------------------------------
-export function cardRefeicoesHoje(dia, { hora = new Date().getHours() } = {}) {
-  const agora = refeicaoDoHorario(hora);
+export function cardRefeicoesHoje(dia, { hora = new Date().getHours(), destaque = true, titulo = "Refeições" } = {}) {
+  const agora = destaque ? refeicaoDoHorario(hora) : null;
   const linhas = refeicoes().map((ref) => linhaRefeicao(ref, dia, ref.id === agora));
   return el("section", { class: "card" }, [
     el("div", { class: "row-between" }, [
-      el("p", { class: "eyebrow", text: "Refeições" }),
-      el("button", { type: "button", class: "link-sutil", text: "Ver plano", onClick: () => irPara("nutricao/refeicoes") }),
+      el("p", { class: "eyebrow", text: titulo }),
+      destaque ? el("button", { type: "button", class: "link-sutil", text: "Ver plano", onClick: () => irPara("nutricao/refeicoes") }) : null,
     ]),
     el("div", { class: "agenda-lista" }, linhas),
   ]);
@@ -86,6 +93,7 @@ function linhaRefeicao(ref, dia, ehAgora) {
     if (reg.varianteNome) partes.push(reg.varianteNome);
     if (reg.fracao !== 1) partes.push((FRACOES.find((f) => f.valor === reg.fracao) || {}).rotulo || `${reg.fracao}×`);
     partes.push(`${fmtG((reg.macros?.prot || 0) * reg.fracao)} de proteína`);
+    if (registradoDepois(reg)) partes.push(`${ICONE_DEPOIS} lançada depois`);
   } else {
     partes.push(ROTULO_HORA[ref.id]);
   }

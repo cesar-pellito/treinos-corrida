@@ -2,6 +2,7 @@
 //   #/hoje                 -> aba
 //   #/treinos/<segmento>   -> aba Treinos (semana | corrida | evolucao | historico)
 //   #/nutricao/<segmento>  -> aba Nutrição (refeicoes | semana | orientacoes)
+//   #/nutricao/refeicoes/<AAAA-MM-DD> -> Refeições de um dia passado (registro retroativo)
 //   #/registrar/<planId>   -> formulário (registro de um treino planejado)
 //   #/avulso               -> formulário (treino fora do plano)
 //   #/editar/<compId>      -> formulário (edição de treino realizado)
@@ -43,8 +44,9 @@ function parseHash() {
   const partes = bruto.split("/");
   let rota = partes[0] || "hoje";
   let param = partes[1] ? decodeURIComponent(partes[1]) : null;
+  const param2 = partes[2] ? decodeURIComponent(partes[2]) : null;
   if (ALIASES[rota]) [rota, param] = ALIASES[rota];
-  return { rota, param };
+  return { rota, param, param2 };
 }
 
 function marcarAba(rota) {
@@ -55,7 +57,7 @@ function marcarAba(rota) {
 }
 
 async function montar({ manterScroll = false } = {}) {
-  const { rota, param } = parseHash();
+  const { rota, param, param2 } = parseHash();
   const meu = ++token;
   const ehAba = !!ABAS[rota];
   marcarAba(ehAba ? rota : "");
@@ -68,7 +70,7 @@ async function montar({ manterScroll = false } = {}) {
   const render = ABAS[rota] || CHEIAS[rota] || ABAS.hoje;
   const temp = document.createElement("div");
   try {
-    await render(temp, param);
+    await render(temp, param, param2);
   } catch (e) {
     limpar(temp);
     temp.appendChild(el("p", { class: "erro", text: "Erro ao carregar a tela: " + (e && e.message) }));

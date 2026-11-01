@@ -5,12 +5,12 @@
 import {
   PLANO, ROTULO_CURTO, ROTULO_HORA, refeicoes, obterRefeicao, nomeVariante,
   macrosEstimados, refeicaoDoHorario, procurarSubstituicoes, partesDoGrupo,
-  resumoDoPrato, carregarDia, carregarSemanas, registrarRefeicao,
+  resumoDoPrato, carregarDia, carregarSemanas, registrarRefeicao, registradoDepois,
 } from "../services/nutricao.js";
-import { hoje as hojeISO, deISODate, nomeDiaSemana } from "../services/dates.js";
+import { hoje as hojeISO, deISODate, nomeDiaSemana, somarDias, ehISODateValida } from "../services/dates.js";
 import { irPara, recarregar } from "./router.js";
 import { el, card, botao, tituloVista, segmentos, toast } from "./components/ui.js";
-import { sheetRefeicao, faixaMeta } from "./components/nutricao-ui.js";
+import { sheetRefeicao, faixaMeta, cardProteina, cardRefeicoesHoje, ICONE_DEPOIS } from "./components/nutricao-ui.js";
 
 const SEGMENTOS = [
   { valor: "refeicoes", rotulo: "Refeições" },
@@ -35,7 +35,7 @@ const estado = {
 let aoMudarPrato = null;
 document.addEventListener("nutri:prato", () => { if (aoMudarPrato) aoMudarPrato(); });
 
-export async function renderNutricao(container, param) {
+export async function renderNutricao(container, param, param2) {
   const seg = SEGMENTOS.some((s) => s.valor === param) ? param : "refeicoes";
   container.appendChild(tituloVista("Nutrição"));
   const seletor = segmentos(SEGMENTOS, { valorInicial: seg, onChange: (v) => irPara("nutricao/" + v) }).node;
@@ -44,15 +44,59 @@ export async function renderNutricao(container, param) {
 
   if (seg === "semana") return renderSemana(container);
   if (seg === "orientacoes") return renderOrientacoes(container);
-  return renderRefeicoes(container);
+  // dia escolhido vem do endereço (#/nutricao/refeicoes/AAAA-MM-DD); sem data
+  // ou data futura/inválida => hoje
+  const hoje = hojeISO();
+  const data = param2 && ehISODateValida(param2) && param2 <= hoje ? param2 : hoje;
+  return renderRefeicoes(container, data);
+}
+
+/** Abre Nutrição → Refeições num dia (hoje sem data no endereço). */
+export function abrirDiaNutricao(data) {
+  irPara(data === hojeISO() ? "nutricao/refeicoes" : `nutricao/refeicoes/${data}`);
 }
 
 // ===========================================================================
 // Refeições
 // ===========================================================================
-async function renderRefeicoes(container) {
+
+/** ‹ dia › com calendário. Futuro bloqueado (seta e calendário). */
+function seletorDia(data) {
+  const hoje = hojeISO();
+  const ehHoje = data === hoje;
+  const input = el("input", {
+    type: "date", class: "dia-nav__input", value: data, max: hoje, "aria-label": "Escolher o dia",
+    onChange: () => { if (input.value && input.value <= hoje) abrirDiaNutricao(input.value); else input.value = data; },
+  });
+  const rotulo = ehHoje ? "Hoje" : data === somarDias(hoje, -1) ? "Ontem" : nomeDiaSemana(data);
+  return el("div", { class: "dia-nav" }, [
+    el("button", { type: "button", class: "btn btn--ghost", "aria-label": "Dia anterior", text: "‹", onClick: () => abrirDiaNutricao(somarDias(data, -1)) }),
+    el("label", { class: "dia-nav__centro" }, [
+      el("span", { class: "strong", text: `${rotulo.charAt(0).toUpperCase()}${rotulo.slice(1)} · ${ddmm(data)}` }),
+      el("span", { class: "dia-nav__cal", "aria-hidden": "true", text: "📅" }),
+      input,
+    ]),
+    el("button", {
+      type: "button", class: "btn btn--ghost", "aria-label": "Próximo dia", text: "›", disabled: ehHoje,
+      onClick: () => abrirDiaNutricao(somarDias(data, 1)),
+    }),
+  ]);
+}
+
+async function renderRefeicoes(container, data) {
   if (!estado.refeicaoId) estado.refeicaoId = refeicaoDoHorario(new Date().getHours());
-  const dia = await carregarDia(hojeISO());
+  const dia = await carregarDia(data);
+  const ehHoje = data === hojeISO();
+
+  container.appendChild(seletorDia(data));
+  if (!ehHoje) {
+    container.appendChild(botao("Voltar para hoje", { variante: "ghost", bloco: true, onClick: () => abrirDiaNutricao(hojeISO()) }));
+    container.appendChild(cardProteina(dia, { titulo: `Proteína em ${ddmm(data)}` }));
+    container.appendChild(cardRefeicoesHoje(dia, { destaque: false, titulo: `Refeições de ${nomeDiaSemana(data, true)} ${ddmm(data)}` }));
+    container.appendChild(el("p", { class: "eyebrow nutri-plano-cab", text: "Plano alimentar" }));
+  } else {
+    container.appendChild(cardProteina(dia));
+  }
 
   // ---- busca de substituições ----
   const busca = el("input", {
@@ -80,7 +124,7 @@ async function renderRefeicoes(container) {
     }, [
       el("span", { text: ROTULO_CURTO[r.id] || r.nome }),
       el("span", { class: "aba-refeicao__hora", text: ROTULO_HORA[r.id] || r.horarioSugerido || "" }),
-      dia.porRefeicao[r.id] ? el("span", { class: "aba-refeicao__ok", "aria-label": "feita hoje", text: "✓" }) : null,
+      dia.porRefeicao[r.id] ? el("span", { class: "aba-refeicao__ok", "aria-label": "feita", text: "✓" }) : null,
     ]));
   }
   container.appendChild(abas);
@@ -142,7 +186,8 @@ async function renderRefeicoes(container) {
 function vistaRefeicao(dia) {
   const ref = obterRefeicao(estado.refeicaoId) || refeicoes()[0];
   const vi = Math.min(estado.varianteDe[ref.id] || 0, ref.variantes.length - 1);
-  const agora = refeicaoDoHorario(new Date().getHours()) === ref.id;
+  const ehHoje = dia.data === hojeISO();
+  const agora = ehHoje && refeicaoDoHorario(new Date().getHours()) === ref.id;
   const registro = dia.porRefeicao[ref.id] || null;
 
   // trocar de refeição ou de variante descarta o prato montado
@@ -157,10 +202,12 @@ function vistaRefeicao(dia) {
     agora ? el("span", { class: "badge badge--concluido", text: "agora" }) : null,
   ]));
 
-  // ---- registro de hoje ----
+  // ---- registro do dia escolhido ----
   if (registro) {
+    const quando = ehHoje ? "hoje" : `em ${ddmm(dia.data)}`;
+    const depois = registradoDepois(registro) ? ` ${ICONE_DEPOIS}` : "";
     frag.appendChild(el("div", { class: "registro-feito" }, [
-      el("span", { text: `✓ Feita hoje${registro.varianteNome ? " · " + registro.varianteNome : ""} · ≈ ${Math.round((registro.macros?.prot || 0) * registro.fracao)} g de proteína` }),
+      el("span", { text: `✓ Feita ${quando}${depois}${registro.varianteNome ? " · " + registro.varianteNome : ""} · ≈ ${Math.round((registro.macros?.prot || 0) * registro.fracao)} g de proteína` }),
       botao("Alterar", { variante: "ghost", onClick: () => sheetRefeicao(ref, dia.data, registro) }),
     ]));
   } else {
@@ -353,14 +400,25 @@ async function renderSemana(container) {
     atual.diasSemRegistro
       ? el("p", { class: "sub pequeno", text: `${atual.diasSemRegistro} ${atual.diasSemRegistro === 1 ? "dia" : "dias"} sem registro (fora da média).` })
       : null,
-    el("div", { class: "dias-proteina" }, atual.dias.map((d) =>
-      el("div", { class: `dia-proteina${d.futuro ? " futuro" : ""}` }, [
+    el("div", { class: "dias-proteina" }, atual.dias.map((d) => {
+      const filhos = [
         el("span", { class: "dia-proteina__dia", text: `${nomeDiaSemana(d.data, true)} ${ddmm(d.data)}` }),
         d.proteina == null
-          ? el("span", { class: "muted pequeno", text: d.futuro ? "" : "sem registro" })
+          ? el("span", { class: `pequeno${d.futuro ? " muted" : " dia-proteina__vazio"}`, text: d.futuro ? "" : "sem registro · completar" })
           : faixaMeta(d.proteina, atual.metaMin, atual.metaMax),
-        el("span", { class: `dia-proteina__valor${d.bateu ? " ok" : ""}`, text: d.proteina == null ? "" : `${Math.round(d.proteina)} g` }),
-      ]))),
+        el("span", { class: `dia-proteina__valor${d.bateu ? " ok" : ""}`, text: d.proteina == null ? "" : `${Math.round(d.proteina)} g${d.retroativo ? " " + ICONE_DEPOIS : ""}` }),
+      ];
+      // dia passado (ou hoje) abre o registro daquele dia
+      return d.futuro
+        ? el("div", { class: "dia-proteina futuro" }, filhos)
+        : el("button", {
+            type: "button", class: `dia-proteina dia-proteina--btn${d.proteina == null ? " dia-proteina--sem" : ""}`,
+            "aria-label": `Abrir ${nomeDiaSemana(d.data)} ${ddmm(d.data)}`, onClick: () => abrirDiaNutricao(d.data),
+          }, filhos);
+    })),
+    atual.dias.some((d) => d.retroativo)
+      ? el("p", { class: "sub pequeno", text: `${ICONE_DEPOIS} = lançado depois do dia. Vale igual.` })
+      : null,
   ]));
 
   container.appendChild(card([

@@ -955,6 +955,81 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.importarBackup(dump)).criados, 0, "reimportar não duplica");
   });
 
+  await test("retroativo: registrar num dia passado atualiza o total do dia e a média de 7 dias", async () => {
+    await reset();
+    const hj = hojeDeHoje();
+    const d = (n) => somarDias(hj, -n);
+    await nutri.registrarProteinaExtra({ data: d(1), proteinaG: 150 });
+    await nutri.registrarProteinaExtra({ data: d(3), proteinaG: 130 });
+    let dia = await nutri.carregarDia(d(2));
+    eq(dia.totais.proteina, 0, "dia esquecido começa zerado");
+    eq(dia.media7d.diasComRegistro, 1, "só um dia com registro até d-2 (d-3)");
+    eq(dia.media7d.media, 130);
+    let agora = await nutri.carregarDia(hj);
+    eq(agora.media7d.media, 140, "(150 + 130) / 2: dias vazios fora");
+
+    // completa o dia esquecido (d-2): café + almoço
+    await nutri.registrarRefeicao({ data: d(2), refeicaoId: "cafe", varianteIndex: 0 });   // 43
+    await nutri.registrarRefeicao({ data: d(2), refeicaoId: "almoco", varianteIndex: 0 }); // 48
+    dia = await nutri.carregarDia(d(2));
+    eq(dia.totais.proteina, 91, "total do dia recalculado");
+    eq(dia.porRefeicao.cafe.data, d(2), "data = o dia a que se refere");
+    assert(nutri.registradoDepois(dia.porRefeicao.cafe), "marcado como lançado depois");
+    agora = await nutri.carregarDia(hj);
+    eq(agora.media7d.diasComRegistro, 3);
+    eq(agora.media7d.media, Math.round((150 + 91 + 130) / 3), "média de 7 dias recalculada");
+
+    // editar e remover no dia passado
+    await nutri.registrarRefeicao({ data: d(2), refeicaoId: "almoco", varianteIndex: 0, fracao: 0.5 });
+    eq((await nutri.carregarDia(d(2))).totais.proteina, 67, "43 + 24");
+    await nutri.desfazerRegistro((await nutri.carregarDia(d(2))).porRefeicao.cafe);
+    eq((await nutri.carregarDia(d(2))).totais.proteina, 24, "café removido");
+
+    // semana de proteína marca o dia lançado depois
+    const sem = nutri.resumirSemanaProteina({
+      registros: await repo.listarRegistrosAlimentares(), inicio: inicioDaSemana(d(2), 1), metas: METAS_PADRAO, hoje: hj,
+    });
+    assert(sem.dias.find((x) => x.data === d(2)).retroativo, "🕐 no dia lançado depois");
+  });
+
+  await test("retroativo: dia sem registro fica fora da média de 7 dias (não entra como zero)", () => {
+    const R = (data, prot) => ({ tipo: "extra", data, proteinaG: prot });
+    const m = nutri.mediaMovel7d({ registros: [R("2026-10-20", 160), R("2026-10-22", 140)], dataRef: "2026-10-24", hoje: "2026-10-31" });
+    eq(m.dias.length, 7, "18 a 24");
+    eq(m.diasComRegistro, 2); eq(m.diasSemRegistro, 5);
+    eq(m.media, 150, "e não (160+140)/7");
+    eq(m.dias.find((x) => x.data === "2026-10-21").proteina, null, "sem registro = null, não 0");
+    const futuro = nutri.mediaMovel7d({ registros: [R("2026-10-30", 100)], dataRef: "2026-11-02", hoje: "2026-10-31" });
+    eq(futuro.dias.length, 5, "dias futuros não contam");
+    eq(nutri.mediaMovel7d({ registros: [], dataRef: "2026-10-24", hoje: "2026-10-31" }).media, null, "nenhum registro = sem média");
+    // lançado no próprio dia: sem 🕐; lançado depois: com
+    eq(nutri.registradoDepois({ data: "2026-10-20", criadoEm: new Date(2026, 9, 20, 21, 0).toISOString() }), false);
+    eq(nutri.registradoDepois({ data: "2026-10-20", criadoEm: new Date(2026, 9, 21, 8, 0).toISOString() }), true);
+  });
+
+  await test("retroativo: lembrete de lacuna de ontem, dispensar e duplicado de backup contado uma vez", async () => {
+    await reset();
+    const hj = hojeDeHoje();
+    eq(await nutri.lacunaOntem(hj), null, "sem nenhum registro ainda: não cobra");
+    await nutri.registrarProteinaExtra({ data: somarDias(hj, -3), proteinaG: 20 });
+    eq(await nutri.lacunaOntem(hj), somarDias(hj, -1), "ontem vazio => aviso");
+    await nutri.dispensarLacuna(somarDias(hj, -1));
+    eq(await nutri.lacunaOntem(hj), null, "dispensado para aquele dia");
+    await repo.definirConfig("lacunaDispensada", null);
+    await nutri.registrarRefeicao({ data: somarDias(hj, -1), refeicaoId: "jantar", varianteIndex: 0 });
+    eq(await nutri.lacunaOntem(hj), null, "ontem registrado => sem aviso");
+
+    // backup de outro aparelho com a mesma (data, refeição) e outro ID: conta uma vez, vale o mais recente
+    const ontem = somarDias(hj, -1);
+    await repo.importarBackup({ stores: { foodLogs: [{
+      id: "uuid-de-outro-aparelho", tipo: "refeicao", data: ontem, refeicaoId: "jantar", fracao: 0.5,
+      macros: { kcal: 0, prot: 40, carb: 0, gord: 0 }, removido: false, atualizadoEm: "2999-01-01T00:00:00.000Z",
+    }] } });
+    const dia = await nutri.carregarDia(ontem);
+    eq(dia.registros.filter((r) => r.refeicaoId === "jantar").length, 1, "um jantar só");
+    eq(dia.totais.proteina, 20, "vale o mais recente (40 × 0,5)");
+  });
+
   await test("refeições: dia futuro recusado; mesmo dia e refeição duas vezes não duplica (ID estável)", async () => {
     await reset();
     let lancou = false;
