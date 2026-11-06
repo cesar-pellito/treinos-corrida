@@ -44,8 +44,14 @@ export const LIMITES = {
   rotasNaTela: 3,
   folgaParaPreferirMenosMudancas: 10, // pontos de custo
   ideiasDescartadas: 3,
+  motivosNoAlerta: 3,
   karatesPorSemana: 3,
   treinosPorDia: 2,
+};
+
+export const GATILHOS = {
+  custoMinimoParaAvisar: 30, // custo de "não fazer": abaixo disso (karatê leve), o aviso não aparece sozinho
+  pioraMinimaParaAlertar: 10, // pontos de penalidade que um ajuste à mão precisa somar para gerar alerta
 };
 
 export const CUSTOS = {

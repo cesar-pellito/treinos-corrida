@@ -5,7 +5,7 @@
 import { AGENDA_PADRAO } from "../data/seed-hub.js";
 import { METAS_PADRAO } from "../services/metas.js";
 import { resumirSemana } from "../services/agenda.js";
-import { avaliar, calcularOfertas, calcularRotas, montarEstado, slotPassou } from "../services/motor-rotas.js";
+import { avaliar, calcularOfertas, calcularRotas, fixosDe, impactoDaMudanca, montarEstado, slotPassou, xQuePedemAtencao } from "../services/motor-rotas.js";
 
 const SEG = "2026-11-02", TER = "2026-11-03", QUA = "2026-11-04", QUI = "2026-11-05", SEX = "2026-11-06", SAB = "2026-11-07", DOM = "2026-11-08";
 const CORRIDA_QUI = { id: "qui", dataPlanejada: QUI, status: "futuro", titulo: "Corrida curta", duracaoMin: 25 };
@@ -293,6 +293,87 @@ export function rodarTestesMotor(reportar) {
     const destinos = r.rotas.flatMap((x) => x.ops.filter((o) => o.tipo === "mover"));
     assert(!destinos.some((o) => (o.data === SEX && o.periodo === "manha") || (o.data === SAB && o.periodo === "noite") || (o.data === DOM && o.periodo === "noite")), "só slots marcados na grade");
     resolveASemana(e, r.rotas);
+  });
+
+  // -------------------------------------------------------------------------
+  // Mínimo para o aviso aparecer sozinho
+  // -------------------------------------------------------------------------
+  const emDiaAteQuarta = [log(SEG, "Upper A", "feito"), log(SEG, "Leve", "feito"), log(TER, "Intenso", "feito"), log(QUA, "Upper B", "feito"), log(QUA, "Leve", "feito")];
+
+  test("aviso: treino de hoje sem registro só avisa depois que o dia termina", () => {
+    const hoje = avaliar(montar({ agora: quando(QUI, 10), logs: emDiaAteQuarta }));
+    eq(hoje.perdidas.length, 1, "a corrida de quinta já passou");
+    eq(hoje.fora, true, "Recalcular ainda busca rotas");
+    eq(hoje.aciona, false, "mas o aviso não aparece sozinho");
+    eq(avaliar(montar({ agora: quando(SEX, 8), logs: emDiaAteQuarta })).aciona, true, "no dia seguinte, avisa");
+  });
+
+  test("aviso: karatê leve perdido e treino sem para onde ir não avisam sozinhos", () => {
+    const leve = avaliar(montar({ agora: quando(TER, 8), logs: [log(SEG, "Upper A", "feito")] }));
+    eq(leve.perdidas.length, 1);
+    eq(leve.aciona, false, "karatê leve está abaixo do mínimo");
+    const intenso = avaliar(montar({ agora: quando(QUA, 8), logs: [log(SEG, "Upper A", "feito"), log(SEG, "Leve", "feito")] }));
+    eq(intenso.perdidas.length, 1);
+    eq(intenso.aciona, false, "o intenso só acontece na terça");
+  });
+
+  test("aviso: ✕ só pede atenção em treino importante e com para onde ir", () => {
+    const idUpper = `item:${itemDe(SEG, "Upper A").id}`;
+    const idLeve = `item:${itemDe(SEG, "Leve").id}`;
+    const logs = [log(SEG, "Upper A", "nao_feito"), log(SEG, "Leve", "nao_feito"), log(TER, "Intenso", "feito")];
+    const quarta = montar({ agora: quando(QUA, 8), logs });
+    eq(xQuePedemAtencao(quarta, [idUpper, idLeve]).join(), idUpper, "Upper dá para recuperar; karatê leve não avisa");
+    eq(xQuePedemAtencao(montar({ agora: quando(DOM, 21), logs }), [idUpper]).length, 0, "domingo à noite não há horário");
+  });
+
+  // -------------------------------------------------------------------------
+  // A escolha do usuário vale mais que as regras
+  // -------------------------------------------------------------------------
+  const corridaNaSexta = { ...CORRIDA_QUI, dataPlanejada: SEX, dataOriginal: QUI, status: "reagendado", periodo: "manha" };
+  const comCorridaNaSexta = (extras = {}) => montar({ agora: quando(QUI, 7), corridas: [corridaNaSexta, CORRIDA_SAB], logs: emDiaAteQuarta, ...extras });
+
+  test("escolha mantida: a regra aceita não avisa, mas outro problema avisa", () => {
+    const a = avaliar(comCorridaNaSexta({ mantidas: { regras: [`impacto:${SEX}`] } }));
+    eq(a.fora, false, a.motivo);
+    eq(a.aciona, false);
+    eq(a.mantidas.length, 1, "a tela mostra o que foi mantido");
+    eq(avaliar(comCorridaNaSexta({ mantidas: { regras: [`impacto:${SEG}`] } })).aciona, true, "aceitar outro dia não cala este");
+  });
+
+  test("escolha mantida: as rotas não movem o treino fixo enquanto ele continuar no mesmo slot", () => {
+    const moveACorrida = (r) => r.ops.some((o) => o.tipo === "mover" && o.id === "run:qui");
+    assert(calcularRotas(comCorridaNaSexta()).rotas.some(moveACorrida), "sem escolha, oferece voltar");
+    const fixos = fixosDe(comCorridaNaSexta().sessoes, ["run:qui"]);
+    assert(!calcularRotas(comCorridaNaSexta({ mantidas: { fixos } })).rotas.some(moveACorrida), "fixa, fica onde está");
+    assert(calcularRotas(comCorridaNaSexta({ mantidas: { fixos: [`run:qui|${SEG}|manha`] } })).rotas.some(moveACorrida), "fixa em outro slot não conta");
+  });
+
+  test("escolha mantida: a dor na fáscia aceita vale só para aquele dia", () => {
+    const k = `fascia:run:sab:${SAB}`;
+    const concluida = { ...CORRIDA_QUI, status: "concluido" };
+    const sabado = avaliar(montar({ agora: quando(SAB, 7, 30), checkin: { fascia: true }, corridas: [concluida, CORRIDA_SAB], logs: emDiaAteQuarta, mantidas: { regras: [k] } }));
+    assert(!sabado.violacoes.some((v) => v.k.startsWith("fascia")), "no dia, não avisa");
+    const noDomingo = { ...CORRIDA_SAB, dataPlanejada: DOM, periodo: "noite" };
+    const domingo = avaliar(montar({ agora: quando(DOM, 7), checkin: { fascia: true }, corridas: [concluida, noDomingo], logs: emDiaAteQuarta, mantidas: { regras: [k] } }));
+    assert(domingo.violacoes.some((v) => v.k.startsWith("fascia")), "no dia seguinte, avisa de novo");
+  });
+
+  test("alerta do ajuste à mão: regra nova sempre; penalidade só a partir do mínimo", () => {
+    const moverLowerA = (data, periodo) => [{ scheduleItemId: itemDe(QUI, "Lower A").id, dataOrigem: QUI, data, periodo, ordem: 0 }];
+    const base = { agora: quando(SEG, 6) };
+
+    const regra = impactoDaMudanca(montar(base), montar({ ...base, movimentos: moverLowerA(TER, "manha") }));
+    assert(regra && regra.regras.length === 1, "Lower no dia do intenso");
+    assert(regra.motivos.some((m) => m.includes("dia do karatê intenso")), regra && regra.motivos.join());
+
+    const penalidade = impactoDaMudanca(montar(base), montar({ ...base, movimentos: moverLowerA(SEX, "manha") }));
+    assert(penalidade && penalidade.regras.length === 0, "sem regra quebrada");
+    assert(penalidade.motivos.includes("Esta mudança deixa Lower na véspera de corrida."), penalidade.motivos.join());
+
+    const agenda = AGENDA_PADRAO.filter((i) => !(i.diaSemana === 1 && i.rotulo === "Upper A") && !(i.diaSemana === 3 && i.rotulo === "Leve"));
+    const dia = { ...base, agenda };
+    const movimentos = [{ scheduleItemId: itemDe(QUA, "Upper B", agenda).id, dataOrigem: QUA, data: TER, periodo: "manha", ordem: 0 }];
+    eq(impactoDaMudanca(montar(dia), montar({ ...dia, movimentos })), null, "dia com dois treinos (5 pontos) não alerta");
   });
 
   return { total: ok + fail, ok, fail };

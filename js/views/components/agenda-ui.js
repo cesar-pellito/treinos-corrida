@@ -217,7 +217,7 @@ function sheetCorrida({ planned: w, periodo }, data) {
   const feita = corridaFeita(w.status);
   const entrada = { tipo: "corrida", planned: w, periodo };
   const fechar = abrirSheet(`Corrida — ${w.titulo}`, el("div", { class: "stack" }, [
-    w.encurtada && !feita ? el("p", { class: "sub", text: "Encurtada por uma rota aceita." }) : null,
+    w.encurtada && !feita ? el("p", { class: "sub", text: "Encurtada ao reorganizar a semana." }) : null,
     el("div", { class: "lista-acoes" }, [
       botao(feita ? "Ver treino" : "Registrar corrida", { variante: "primary", bloco: true, onClick: () => { fechar(); abrirRegistroCorrida(w, "semana"); } }),
       !feita ? botao(w.status === "nao_realizado" ? "Tirar “não feito”" : "Marcar como não feito", {

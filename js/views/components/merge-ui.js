@@ -4,7 +4,7 @@
 // na tela Hoje (via agenda-ui.js).
 
 import { recarregar } from "../router.js";
-import { carregarSemana, primeiroDiaSemana, statusDaSessao, moverEntrada, ROTULO_PERIODO, ROTULO_STATUS } from "../../services/agenda.js";
+import { carregarSemana, primeiroDiaSemana, statusDaSessao, ROTULO_PERIODO, ROTULO_STATUS } from "../../services/agenda.js";
 import {
   pendentesDaSemana, validarMerge, montarSugestao, avisoDiaSeguinte, juntar, desfazer,
   editarCombinada, sugerirReorganizacao, aplicarReorganizacao,
@@ -13,6 +13,7 @@ import { ehLower, ehUpper } from "../../services/agenda.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate, somarDias, inicioDaSemana } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo } from "./ui.js";
 import { agir, OPCOES_RPE, inputMinutos, lerMinutos } from "./agenda-ui.js";
+import { moverComAviso } from "./aviso-semana.js";
 
 const ddmm = (iso) => {
   const d = deISODate(iso);
@@ -216,10 +217,7 @@ export async function sheetMover(entrada, dataAtual) {
       ok.disabled = true;
       const destino = dia.get();
       fechar();
-      await agir(async () => {
-        await moverEntrada(entrada, dataAtual, { data: destino, periodo: periodo.get(), ordem: 500 });
-        toast(`Movido para ${nomeDiaSemana(destino)} · ${ROTULO_PERIODO[periodo.get()].toLowerCase()}`);
-      });
+      await moverComAviso(entrada, dataAtual, { data: destino, periodo: periodo.get(), ordem: 500 }, `Movido para ${nomeDiaSemana(destino)} · ${ROTULO_PERIODO[periodo.get()].toLowerCase()}`);
     },
   });
   const fechar = abrirSheet(`Mover ${titulo}`, el("div", { class: "stack" }, [

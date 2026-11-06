@@ -1,13 +1,13 @@
 // semana.js — liga o motor de rotas (puro) aos dados. Sem DOM. Lê o estado pelo
 // repository, roda o motor, aplica a rota aceita, fecha a semana e grava o histórico.
 //
-// O status da semana só muda de "fora do plano" para "em dia" ao tocar em
-// Recalcular. O `controle` (em settings) guarda o que foi visto por último, para
-// isso continuar valendo depois de fechar o app:
-//   - foraVista: a semana estava fora do plano na última leitura
-//   - nao: treinos com ✕ já conhecidos
-//   - pendente: mudou algo depois do último recálculo ("Registros atualizados")
+// O aviso só aparece sozinho quando o motor tem algo útil a dizer (motor-rotas.js,
+// `avaliar` e `xQuePedemAtencao`). O `controle` (em settings) guarda o que o usuário
+// já viu e decidiu nesta semana, para continuar valendo depois de fechar o app:
+//   - nao: treinos com ✕ que já não avisam: vistos ao recalcular, ou que não
+//     justificavam aviso quando foram marcados
 //   - decididos: treinos com ✕ de uma rota aceita, que não voltam a ser oferecidos
+//   - mantidas: escolhas do usuário acima das regras, {regras, fixos, semRegistro}
 //
 // Ao aceitar uma rota, a semana é fotografada. "Desfazer" volta à foto enquanto os
 // treinos da semana continuarem como a rota deixou.
@@ -16,7 +16,9 @@ import * as repo from "../data/repository.js";
 import { DISPONIBILIDADE_PADRAO } from "../data/rotas-config.js";
 import { carregarSemana, marcarSessao, moverEntrada, alternarCorridaNaoFeita, statusDaSessao, primeiroDiaSemana } from "./agenda.js";
 import { juntar } from "./merge.js";
-import { assinaturaDoEstado, avaliar, calcularOfertas, calcularRotas, montarEstado } from "./motor-rotas.js";
+import {
+  assinaturaDoEstado, avaliar, calcularOfertas, calcularRotas, fixosDe, idDaEntrada, impactoDaMudanca, montarEstado, xQuePedemAtencao,
+} from "./motor-rotas.js";
 import { agoraISO, inicioDaSemana, paraISODate, somarDias } from "./dates.js";
 import { corridaFeita } from "./dominio.js";
 
@@ -55,40 +57,36 @@ async function carregarEstado(agora) {
     repo.obterCheckin(hoje),
     lerControle(semana.inicio),
   ]);
-  const estado = montarEstado({ semana, agora, disponibilidade, excecoes, checkin, decididos: controle ? controle.decididos : [] });
+  const estado = montarEstado({
+    semana, agora, disponibilidade, excecoes, checkin,
+    decididos: controle ? controle.decididos : [],
+    mantidas: controle ? controle.mantidas : undefined,
+  });
   return { estado, semana, controle, excecoes, checkin };
 }
 
 /**
- * Situação da semana atual para as telas. Atualiza o controle: a semana só deixa
- * de estar "fora do plano" depois de Recalcular; um ✕ novo também pede recálculo.
+ * Situação da semana atual para as telas. `aviso` = regra quebrada, treino importante
+ * sem registro depois do fim do dia, ou ✕ novo num treino que ainda dá para recuperar.
  */
 export async function situacaoSemana(agora = new Date()) {
   await prepararSemana(agora);
   const dados = await carregarEstado(agora);
   const avaliacao = avaliar(dados.estado);
   const nao = idsComX(dados.estado);
-  const antes = dados.controle || { inicio: dados.semana.inicio, foraVista: avaliacao.fora, nao, pendente: false, decididos: [] };
+  const antes = dados.controle || { inicio: dados.semana.inicio, nao, decididos: [] };
   const decididos = antes.decididos.filter((id) => nao.includes(id));
-  const xNovo = nao.some((id) => !antes.nao.includes(id) && !decididos.includes(id));
-  const pendente = antes.pendente || (antes.foraVista && !avaliacao.fora) || xNovo;
-  const controle = { ...antes, foraVista: avaliacao.fora, nao, pendente, decididos };
+  const pedemAtencao = xQuePedemAtencao(dados.estado, nao.filter((id) => !antes.nao.includes(id) && !decididos.includes(id)));
+  const controle = { ...antes, nao: nao.filter((id) => !pedemAtencao.includes(id)), decididos };
   if (!dados.controle || JSON.stringify(controle) !== JSON.stringify(dados.controle)) {
     await repo.definirConfig(CHAVE_CONTROLE, controle);
   }
+  const pendente = pedemAtencao.length > 0;
   return {
     ...dados, controle, avaliacao, pendente,
-    aviso: avaliacao.fora || pendente,
+    aviso: avaliacao.aciona || pendente,
     assinatura: assinaturaDoEstado(dados.estado),
   };
-}
-
-/** Atualiza o controle sem pedir recálculo (check-in e exceções não são registros de treino). */
-async function aceitarEstadoAtual(agora) {
-  const { estado, semana, controle } = await carregarEstado(agora);
-  const nao = idsComX(estado);
-  const base = controle || { inicio: semana.inicio, pendente: false, decididos: [] };
-  return repo.definirConfig(CHAVE_CONTROLE, { ...base, foraVista: avaliar(estado).fora, nao });
 }
 
 // ---------------------------------------------------------------------------
@@ -96,13 +94,13 @@ async function aceitarEstadoAtual(agora) {
 // ---------------------------------------------------------------------------
 
 /**
- * O botão "Recalcular semana de treinos". Semana fora do plano: busca as rotas.
+ * O botão "Reorganizar Semana". Semana fora do plano: busca as rotas.
  * Em dia: oferece alternativas (check-in de hoje, treinos com ✕). Devolve
  * {assinatura, tipo: 'rotas'|'comprometida'|'ofertas'|'em_dia', ...}.
  */
 export async function recalcular(agora = new Date()) {
-  const { estado, semana, controle, avaliacao, assinatura } = await situacaoSemana(agora);
-  await repo.definirConfig(CHAVE_CONTROLE, { ...controle, inicio: semana.inicio, foraVista: avaliacao.fora, nao: idsComX(estado), pendente: false });
+  const { estado, controle, avaliacao, assinatura } = await situacaoSemana(agora);
+  await repo.definirConfig(CHAVE_CONTROLE, { ...controle, nao: idsComX(estado) });
   if (avaliacao.fora) return { assinatura, ...calcularRotas(estado) };
   const ofertas = calcularOfertas(estado);
   return { assinatura, tipo: ofertas.temOferta ? "ofertas" : "em_dia", ...ofertas };
@@ -122,7 +120,7 @@ function acharEntrada(semana, id) {
       if (tipo === "merge" && e.tipo === "mesclada" && e.merge.id === chave) return { entrada: e, data: dia.data };
     }
   }
-  throw new Error("Este treino mudou. Recalcule a semana.");
+  throw new Error("Este treino mudou. Toque em Reorganizar Semana de novo.");
 }
 
 async function marcarNaoFeito(semana, id) {
@@ -168,7 +166,7 @@ export async function aceitarRota(rota, agora = new Date()) {
     // Mesmo com falha no meio, o que foi aplicado fica; o resto aparece ao recalcular.
     const { estado, semana } = await carregarEstado(agora);
     const nao = idsComX(estado);
-    await repo.definirConfig(CHAVE_CONTROLE, { inicio: semana.inicio, foraVista: avaliar(estado).fora, nao, pendente: false, decididos: nao });
+    await repo.definirConfig(CHAVE_CONTROLE, { ...controleAntes, inicio: semana.inicio, nao, decididos: nao });
     await repo.definirConfig(CHAVE_DESFAZER, {
       inicio: faixa.de, foto: fotoAntes, controle: controleAntes, mudancas: rota.mudancas,
       depois: impressaoDaFoto(await repo.fotografarSemana(faixa)),
@@ -196,7 +194,7 @@ export async function rotaParaDesfazer(agora = new Date()) {
 /** Volta a semana a como estava antes de aceitar a rota. O histórico registra as duas coisas. */
 export async function desfazerRota(agora = new Date()) {
   const guardada = await rotaParaDesfazer(agora);
-  if (!guardada) throw new Error("A semana mudou depois de aceitar a rota.");
+  if (!guardada) throw new Error("A semana mudou depois de aceitar as mudanças.");
   const faixa = await faixaDaSemana(paraISODate(agora));
   await repo.restaurarSemana(guardada.foto, faixa);
   await repo.definirConfig(CHAVE_CONTROLE, guardada.controle);
@@ -210,17 +208,67 @@ export function manterComoEsta(agora = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
+// Ajuste à mão: a escolha é do usuário
+// ---------------------------------------------------------------------------
+
+/**
+ * Move para onde o usuário mandou e devolve o alerta, se a semana piorou (senão,
+ * null). Nada é bloqueado. Só a semana atual passa pelo motor.
+ */
+export async function moverComAlerta(entrada, dataAtual, destino, agora = new Date()) {
+  const faixa = await faixaDaSemana(paraISODate(agora));
+  if (dataAtual < faixa.de || dataAtual > faixa.ate) {
+    await moverEntrada(entrada, dataAtual, destino);
+    return null;
+  }
+  const foto = await repo.fotografarSemana(faixa);
+  const { estado: antes } = await carregarEstado(agora);
+  await moverEntrada(entrada, dataAtual, destino);
+  const { estado: depois } = await carregarEstado(agora);
+  const impacto = impactoDaMudanca(antes, depois);
+  return impacto && { ...impacto, id: idDaEntrada(entrada), foto };
+}
+
+/** "Desfazer" no alerta: a semana volta a como estava antes de mover. */
+export async function desfazerMudanca(alerta, agora = new Date()) {
+  await repo.restaurarSemana(alerta.foto, await faixaDaSemana(paraISODate(agora)));
+}
+
+async function guardarMantidas(agora, { regras = [], ids = [], semRegistro = [] }) {
+  const { estado, semana, controle } = await carregarEstado(agora);
+  const base = controle || { inicio: semana.inicio, nao: idsComX(estado), decididos: [] };
+  const atuais = base.mantidas || {};
+  const somar = (chave, novos) => [...new Set([...(atuais[chave] || []), ...novos])];
+  await repo.definirConfig(CHAVE_CONTROLE, {
+    ...base,
+    mantidas: { regras: somar("regras", regras), fixos: somar("fixos", fixosDe(estado.sessoes, ids)), semRegistro: somar("semRegistro", semRegistro) },
+  });
+}
+
+/** "Manter minha escolha" no alerta: o treino fica fixo e o problema aceito não volta. */
+export async function manterMudanca(alerta, agora = new Date()) {
+  await guardarMantidas(agora, { regras: alerta.regras.map((v) => v.k), ids: [alerta.id, ...alerta.regras.flatMap((v) => v.ids)] });
+  await registrarEscolha(paraISODate(agora), { tipo: "mantida", mudancas: alerta.motivos, custo: 0 });
+}
+
+/** "Manter minha escolha" na tela de rotas: vale para tudo o que a semana avisa agora. */
+export async function manterSemana(agora = new Date()) {
+  const { estado } = await carregarEstado(agora);
+  const { violacoes, perdidas } = avaliar(estado);
+  await guardarMantidas(agora, { regras: violacoes.map((v) => v.k), ids: violacoes.flatMap((v) => v.ids), semRegistro: perdidas.map((s) => s.id) });
+  await registrarEscolha(paraISODate(agora), { tipo: "mantida", mudancas: violacoes.map((v) => v.texto), custo: 0 });
+}
+
+// ---------------------------------------------------------------------------
 // Check-in e exceções
 // ---------------------------------------------------------------------------
 
-export async function salvarCheckinDeHoje(dados, agora = new Date()) {
-  await repo.salvarCheckin({ ...CHECKIN_VAZIO, ...dados, data: paraISODate(agora) });
-  await aceitarEstadoAtual(agora);
+export function salvarCheckinDeHoje(dados, agora = new Date()) {
+  return repo.salvarCheckin({ ...CHECKIN_VAZIO, ...dados, data: paraISODate(agora) });
 }
 
-export async function definirExcecao(data, excecao, agora = new Date()) {
-  await repo.salvarExcecao({ data, ...excecao });
-  await aceitarEstadoAtual(agora);
+export function definirExcecao(data, excecao) {
+  return repo.salvarExcecao({ data, ...excecao });
 }
 
 // ---------------------------------------------------------------------------

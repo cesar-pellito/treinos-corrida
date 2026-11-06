@@ -81,7 +81,7 @@ IndexedDB `treinos-corrida`, **versão 5**. Cada migração só adiciona stores 
 | `sessionMerges` (v4) | sessão combinada: duas sessões de musculação juntadas numa só | `data`, `periodo`, `rotulo` ("Lower A + Lower B"), `origens` [`scheduleItemId`, `rotulo`, `dataOcorrencia`, `dataOrigem`, `logAnterior`], `plano` (snapshot da sugestão), `status` (null = pendente, `feito`/`nao_feito`), `duracaoMin?`, `rpe?`, `removido` (merge desfeito) |
 | `dailyCheckins` (v5) | check-in do dia | `data`, `disposicao` (1 a 5), `dorUpper`, `dorLower`, `fascia`. Um por dia (`checkin:<data>`); fica no histórico |
 | `weekExceptions` (v5) | exceções da semana | `data`, `bloqueio` (`manha`/`noite`/`dia`/null), `feriado`. Uma por dia (`excecao:<data>`) |
-| `weekHistory` (v5) | histórico por semana | `inicio`, `planoOriginal`, `escolhas` (rotas aceitas e "manter": data e hora, mudanças e custo), `resultado`, `fechadaEm`. Uma por semana (`semana:<inicio>`) |
+| `weekHistory` (v5) | histórico por semana | `inicio`, `planoOriginal`, `escolhas` (rotas aceitas, "manter" e escolhas mantidas: data e hora, mudanças e custo), `resultado`, `fechadaEm`. Uma por semana (`semana:<inicio>`) |
 
 Em `sessionLogs`, o status `mesclada` (v4) marca a origem de um merge, com `mergeId` apontando para a combinada. O status `pulado` saiu do app: registros antigos ficam como estão no banco e são lidos como `nao_feito`. Em `plannedWorkouts`, `encurtada` marca a corrida que uma rota encurtou, e o status `encurtado` entra ao registrar com o campo "Corrida encurtada" (conta como feita, somando os minutos informados em `duracaoRealMin`). Em `foodLogs`, `data` é o dia a que o registro se refere e `criadoEm`/`atualizadoEm` dizem quando foi lançado.
 
@@ -99,7 +99,7 @@ Barra inferior: **Hoje · Treinos · Semana · Nutrição · Ajustes**.
 
 - **Hoje:** se ontem ficou sem nenhuma refeição, um aviso discreto "Ontem ficou sem registro. Completar?" leva ao dia (✕ dispensa); agenda do dia com check de 1 toque (✓ feito, ✕ não feito; tocar de novo desmarca; tocar no nome abre duração e RPE), proteína do dia contra a meta (+ proteína extra), as 4 refeições com ✓ de 1 toque (a do horário em destaque; tocar no nome escolhe a variante e a porção), resumo da semana e próxima corrida (tocar abre objetivo, RPE, zona, fase e a estrutura do treino).
 - **Treinos:** *Semana* (agenda da semana com checks, aderência e "Lower X de 2", navegação entre semanas; **segurar e arrastar** um treino o leva para outro dia ou período da mesma semana, inclusive para ficar antes ou depois de outro no mesmo período; "Mover para…" na folha da sessão faz o mesmo sem arrastar; **"Juntar sessões"** junta duas de musculação pendentes — também aparece no Hoje quando há musculação atrasada), *Corrida* (progresso do plano e calendário), *Evolução* e *Histórico* da corrida. As rotas antigas `#/calendario`, `#/evolucao` e `#/historico` continuam funcionando.
-- **Semana:** check-in do dia, status da semana, rotas sugeridas e a grade de 7 dias × 2 slots (seção 2.2). Quando a semana sai do plano, Hoje e Treinos mostram "Sua semana mudou, ver rotas".
+- **Semana:** check-in do dia, status da semana, opções para reorganizar e a grade de 7 dias × 2 slots (seção 2.2). Quando a semana sai do plano, Hoje e Treinos mostram "Sua semana mudou. Quer reorganizar?".
 - **Nutrição** (porte do App_Dieta): *Refeições* — seletor ‹ dia › com calendário (padrão hoje, futuro bloqueado); num dia passado aparecem a proteína do dia, as 4 refeições com ✓ de 1 toque e o plano, tudo gravando naquele dia; abas por refeição (abre na do horário), variantes, Alimentos/Macros, montar prato com a barra de blocos e pendências, busca de substituições sem acento, e "Marcar como feita" / "Outra porção…"; *Semana* — dias na meta e média de proteína, dia a dia (tocar num dia abre o registro dele; dia vazio mostra "sem registro · completar"), e as 3 semanas anteriores; *Orientações* — mensagem, hidratação, refeição livre, orientações gerais, links com cupons e contato (dados do plano que o App_Dieta guardava mas não exibia).
 - **Ajustes:** Agenda semanal, Horários para treinar, Metas, preferências da corrida, `.ics`, backup e "Recomeçar o plano de corrida".
 
@@ -124,16 +124,18 @@ A corrida do dia vem **sempre do plano de corrida** (`plannedWorkouts`); os iten
 
 ## 2.2 Aba Semana e motor de rotas
 
-O motor (`js/services/motor-rotas.js`) é um conjunto de funções puras: recebe o estado e devolve resultados, sem DOM e sem banco. `js/services/semana.js` lê os dados, aplica a rota aceita com as funções que já existem (`moverEntrada`, `juntar`, status) e grava o histórico. **Custos, penalidades e janelas ficam em `js/data/rotas-config.js`.**
+O motor (`js/services/motor-rotas.js`) é um conjunto de funções puras: recebe o estado e devolve resultados, sem DOM e sem banco. `js/services/semana.js` lê os dados, aplica a rota aceita com as funções que já existem (`moverEntrada`, `juntar`, status) e grava o histórico. **Custos, penalidades e janelas ficam em `js/data/rotas-config.js`.** No código e nesta seção, cada opção para reorganizar a semana é uma "rota"; a palavra não aparece na tela.
 
 - **Slots:** cada dia tem manhã e noite. Dia útil: manhã até 9h, noite até 22h. Sábado, domingo e feriado: manhã até 13h, tarde/noite até 22h. Slot livre = marcado em Ajustes → Horários para treinar, sem "não posso", não passou e sem sessão.
 - **Sem registro:** treino num slot que passou sem status. A aula opcional não entra: perdê-la não gera aviso nem custo, e pendente não conta no limite de 3 karatês.
 - **Regras obrigatórias:** feita não muda; karatê só nas noites de aula; até 3 karatês; karatê e corrida nunca no mesmo dia; Lower nunca em dias seguidos nem no dia do intenso; até 2 treinos por dia; duas corridas nunca no mesmo dia; piso de 1 Upper e 1 Lower; com dor na fáscia, a corrida de hoje só encurtada ou não feita (e não vai para outro dia). Regra quebrada só entre treinos feitos não conta.
 - **Domingo à tarde:** as rotas nunca sugerem esse horário (`SLOTS_QUE_NUNCA_SUGERE` em `rotas-config.js`). Um treino que você coloca lá à mão continua valendo, sem aviso.
 - **Dois treinos no mesmo período** são permitidos quando você arruma assim, e isso não gera aviso. O motor, por conta própria, só usa slots livres.
-- **O que você move** vira o plano da semana e não conta como mudança de rota; só gera aviso se quebrar uma regra.
+- **O que você move** vira o plano da semana e não conta como mudança de rota. Se a semana piorar (regra quebrada, ou 10 pontos de penalidade ou mais), abre "Talvez essa não seja a melhor combinação", com **Manter minha escolha** e **Desfazer**. Nada é bloqueado.
+- **Manter minha escolha:** aparece nesse alerta e na tela de rotas. Vale até o fim da semana: o problema aceito não avisa mais, as rotas não tentam consertá-lo nem movem o treino mantido enquanto ele estiver naquele horário, e um problema diferente avisa de novo. Todas as regras podem ser mantidas; a dor na fáscia, só no dia. A escolha fica no histórico da semana.
 - **Treino com ✕** fica como está. O motor só o reabre sozinho se o piso de musculação estiver quebrado.
-- **Recalcular:** a checagem automática só decide se há aviso. As rotas só são buscadas no botão **Recalcular semana de treinos**, e marcar treinos mostra "Registros atualizados" até você tocar nele. Com a semana em dia, o botão oferece "Manter como está" e alternativas, quando o check-in pesa num treino de hoje ou quando dá para recuperar um treino com ✕ (o ✕ de uma rota aceita não volta a ser oferecido).
+- **Mínimo para o aviso:** "Sua semana mudou. Quer reorganizar?" só aparece sozinho com regra quebrada, com ✕ novo em Lower, Upper, corrida ou karatê intenso, ou com um desses treinos sem registro depois que o dia termina. Nos dois últimos casos, também é preciso haver um horário que receba o treino com uma única mudança, sem quebrar regra (`GATILHOS` em `rotas-config.js`). Um ✕ que não justificou aviso ao ser marcado não avisa depois, mesmo que um horário fique livre. O restante aparece só na aba Semana.
+- **Reorganizar Semana:** a checagem automática só decide se há aviso. As rotas só são buscadas no botão **Reorganizar Semana**, disponível a qualquer momento. Com a semana em dia, o botão oferece "Manter como está" e alternativas, quando o check-in pesa num treino de hoje ou quando dá para recuperar um treino com ✕ (o ✕ de uma rota aceita não volta a ser oferecido).
 - **Rotas:** até 3 mudanças (mover, juntar, encurtar, não fazer), em camadas de 1, 2 e 3; custo = operações + penalidades; até 3 rotas, sem repetir a mesma semana final.
 - **Desfazer:** depois de aceitar uma rota, a aba Semana mostra o que ela mudou e o botão **Desfazer**, que volta tudo como estava. O botão fica disponível até algum treino da semana mudar; check-in e exceções não contam.
 - **Semana comprometida:** sem rota para tudo, a rota garante o piso de musculação com o que dá tempo, e o resto sem registro vira não feito ao aceitar. Tudo pode ser corrigido depois.
@@ -226,7 +228,7 @@ Abra **`test.html`** (servido por HTTP) — roda asserções em JS puro contra a
 
 Hub: **migração v1→v2** a partir de um banco v1 de verdade, com dados (registros idênticos byte a byte, índices funcionando, stores novos vazios); seed da agenda idempotente e que respeita remoções; metas com mescla, validação e descarte de campos antigos; uma sessão por (data, item) com edição, desmarcar e reativar sem duplicar; aderência que ignora opcionais e conta Lower fora do dia; remanejamento de treino fora da agenda; backup v1 importando no v2 sem duplicar; plano alimentar com quantidades literais (amostras do PDF); proteína do dia com porção, extras, edição sem duplicar e tombstone; semana de proteína com média só dos dias registrados; busca sem acento e pendências do montar prato.
 
-Motor de rotas (`js/tests/motor-rotas.js`): os 7 cenários da especificação, verificando propriedades do resultado, mais karatê opcional, reabrir ✕ com o piso quebrado, recuperar ✕, check-in, dois treinos no mesmo período, voltar ao lugar original e horários fora da grade. Aba Semana (`nucleo.js`): migração v4→v5, aceitar rota, encurtado, status só atualizando no Recalcular, semana comprometida, fechamento e backup dos stores novos.
+Motor de rotas (`js/tests/motor-rotas.js`): os 7 cenários da especificação, verificando propriedades do resultado, mais karatê opcional, reabrir ✕ com o piso quebrado, recuperar ✕, check-in, dois treinos no mesmo período, voltar ao lugar original e horários fora da grade. Mínimo para o aviso, escolhas mantidas e alerta do ajuste à mão também têm cenários. Aba Semana (`nucleo.js`): migração v4→v5, aceitar rota, encurtado, aviso de ✕ novo, ajuste à mão, "Manter minha escolha", semana comprometida, fechamento e backup dos stores novos.
 
 v4: **migração v3→v4** a partir de um banco v3 com dados em todos os stores (registros idênticos byte a byte, índices funcionando, `sessionMerges` vazio); merge no repository (origens `mesclada` com vínculo, desfazer restaurando sem registro / não feito, recusa depois de feita); bloqueios (feita, corrida, karatê, semanas diferentes, combinada fora da semana, a mesma sessão duas vezes) e aviso de Upper + Lower; sugestão Lower A + Lower B sem duplicados, compostos primeiro, bi-set, dentro do teto e cortes em ordem; aviso do dia seguinte; o caso de 31/10 de ponta a ponta (juntar, desfazer, juntar de novo, Upper A para domingo, "4 de 4 cobertas (1 mesclada)", Lower 2 de 2, backup sem duplicar); registro retroativo atualizando o total do dia e a média de 7 dias; dia sem registro fora da média; registrar duas vezes o mesmo dia e refeição sem duplicar; dia futuro recusado; lembrete de lacuna; duplicado de backup contado uma vez.
 
@@ -313,22 +315,25 @@ Marque cada item ao validar uma nova instalação.
 
 **Aba Semana**
 - [ ] Ao atualizar para a v5, **todos os dados continuam**, e não aparece mais o botão ↷.
-- [ ] Treino sem registro aparece na aba Semana e gera "Sua semana mudou, ver rotas" em Hoje e Treinos.
-- [ ] Marcar treinos mostra "Registros atualizados"; a semana só muda ao tocar em Recalcular.
-- [ ] Aceitar uma rota volta a "Semana em dia, segue como está".
+- [ ] Treino importante sem registro aparece na aba Semana na hora e só gera "Sua semana mudou. Quer reorganizar?" em Hoje e Treinos no dia seguinte.
+- [ ] Karatê leve com ✕ ou sem registro não gera o aviso; ✕ em treino importante gera, se ainda houver horário.
+- [ ] Marcar o que faltava tira o aviso, sem precisar de Reorganizar Semana.
+- [ ] Mover um Lower para a véspera do Lower seguinte abre "Talvez essa não seja a melhor combinação"; **Desfazer** devolve o treino.
+- [ ] **Manter minha escolha** tira o aviso, a aba Semana mostra "Você manteve" e as opções para reorganizar não movem esse treino.
+- [ ] Aceitar uma opção volta a "Semana em dia, segue como está".
 - [ ] Depois de aceitar, "Desfazer" volta a semana como estava; marcar um treino tira o botão.
 - [ ] Check-in: disposição e dor muscular não geram aviso; fáscia "sim" no dia da corrida gera.
 - [ ] Toque no dia da grade: "não posso" e "feriado" valem só para a semana.
 - [ ] Corrida encurtada: o formulário traz o campo marcado quando uma rota encurtou, e ela conta como feita.
-- [ ] Ajustes → Horários para treinar muda o que as rotas sugerem.
+- [ ] Ajustes → Horários para treinar muda o que Reorganizar Semana sugere.
 
 ### Roteiro rápido no celular (v5)
 
 Antes: **Ajustes → Exportar backup**. Depois abra o app e toque em "Atualizar" quando aparecer.
 
 1. Em **Semana**, responda o check-in e veja a grade com os seus treinos.
-2. Se houver treino sem registro, marque ✓ ou ✕ e toque em **Recalcular semana de treinos**.
-3. Abra "O que não fazer?" e aceite uma rota: a grade muda e a tela volta a "Semana em dia".
+2. Se houver treino sem registro, marque ✓ ou ✕ e toque em **Reorganizar Semana**.
+3. Abra "O que não fazer?" e aceite uma opção: a grade muda e a tela volta a "Semana em dia".
 4. Em Treinos, arraste um treino para um dia que quebre uma regra (corrida na sexta, com karatê): o aviso aparece em Hoje e Treinos.
 5. Em Ajustes → **Horários para treinar**, desmarque os horários em que você nunca treina.
 

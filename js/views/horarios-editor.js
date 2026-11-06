@@ -13,7 +13,7 @@ export async function renderEditorHorarios(container) {
   container.appendChild(cabecalhoVoltar("Horários para treinar", voltar));
   const grade = await obterDisponibilidade();
 
-  container.appendChild(el("p", { class: "sub", text: "Marque quando você normalmente pode treinar. As rotas só sugerem estes horários. Treinos já marcados na agenda continuam onde estão." }));
+  container.appendChild(el("p", { class: "sub", text: "Marque quando você normalmente pode treinar. Ao reorganizar a semana, o app só sugere estes horários. Treinos já marcados na agenda continuam onde estão." }));
 
   const alternar = (dia, periodo) => async (ev) => {
     grade[dia] = { ...grade[dia], [periodo]: grade[dia][periodo] === false };
@@ -23,7 +23,7 @@ export async function renderEditorHorarios(container) {
   };
   const chip = (dia, periodo, rotulo) => {
     if (SLOTS_QUE_NUNCA_SUGERE.some((s) => s.dia === dia && s.periodo === periodo)) {
-      return el("button", { type: "button", class: "chip", text: rotulo, disabled: true, title: "As rotas não sugerem este horário" });
+      return el("button", { type: "button", class: "chip", text: rotulo, disabled: true, title: "O app não sugere este horário ao reorganizar a semana" });
     }
     return el("button", {
       type: "button", class: "chip", text: rotulo, "aria-pressed": grade[dia][periodo] !== false, onClick: alternar(dia, periodo),
@@ -40,5 +40,5 @@ export async function renderEditorHorarios(container) {
       ]),
     ]),
   ]));
-  container.appendChild(el("p", { class: "sub", text: "O karatê continua nas noites de aula: segunda (leve), terça (intenso), quarta (leve) e sexta (leve). Dia útil: manhã até 9h e noite a partir de 19h. Sábado, domingo e feriado: manhã até 13h e tarde a partir de 13h. As rotas nunca sugerem domingo à tarde." }));
+  container.appendChild(el("p", { class: "sub", text: "O karatê continua nas noites de aula: segunda (leve), terça (intenso), quarta (leve) e sexta (leve). Dia útil: manhã até 9h e noite a partir de 19h. Sábado, domingo e feriado: manhã até 13h e tarde a partir de 13h. Ao reorganizar a semana, o app nunca sugere domingo à tarde." }));
 }

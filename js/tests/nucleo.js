@@ -1178,7 +1178,7 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.obterPlanned("run-sab")).status, "concluido", "o formulário de edição corrige");
   });
 
-  await test("semana: marcar não atualiza sozinho; recalcular decide; ✕ de rota aceita não volta", async () => {
+  await test("semana: marcar o que faltava resolve o aviso; ✕ novo pede recálculo; ✕ de rota aceita não volta", async () => {
     const s = await prepararSemanaDeTeste();
     const agora = s.quando(4, 8);
     let sit = await semanaSrv.situacaoSemana(agora);
@@ -1189,16 +1189,19 @@ export async function rodarTestes(seed, reportar) {
     await s.marcar(2, "Intenso", "2026-11-03", "feito");
     sit = await semanaSrv.situacaoSemana(agora);
     assert(!sit.avaliacao.fora, "tudo marcado");
-    assert(sit.aviso && sit.pendente, "o aviso fica até recalcular");
-    eq((await semanaSrv.situacaoSemana(agora)).pendente, true, "continua depois de reler, como ao reabrir o app");
+    eq(sit.aviso, false, "sem nada a fazer, não pede recálculo");
     const emDia = await semanaSrv.recalcular(agora);
     eq(emDia.tipo, "em_dia");
-    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "agora está em dia");
 
     await s.marcar(1, "Upper A", "2026-11-02", "nao_feito");
     sit = await semanaSrv.situacaoSemana(agora);
-    assert(sit.pendente, "✕ novo pede recálculo");
+    assert(sit.aviso && sit.pendente, "✕ novo pede recálculo");
+    eq((await semanaSrv.situacaoSemana(agora)).pendente, true, "continua depois de reler, como ao reabrir o app");
+    await s.marcar(1, "Upper A", "2026-11-02", "feito");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "tirar o ✕ tira o aviso");
+    await s.marcar(1, "Upper A", "2026-11-02", "nao_feito");
     const calc = await semanaSrv.recalcular(agora);
+    eq((await semanaSrv.situacaoSemana(agora)).pendente, false, "depois de recalcular, o ✕ já foi visto");
     eq(calc.tipo, "ofertas");
     const mover = calc.rotas.find((r) => r.mudancas[0] === "Mover Upper A para sexta de manhã");
     assert(mover, `oferece mover: ${calc.rotas.map((r) => r.mudancas[0])}`);
@@ -1237,7 +1240,7 @@ export async function rodarTestes(seed, reportar) {
     const s = await prepararSemanaDeTeste();
     await semanaEmDiaAteQuarta(s);
     await semanaSrv.prepararSemana(s.quando(6, 10));
-    await semanaSrv.definirExcecao("2026-11-06", { bloqueio: "manha", feriado: false }, s.quando(6, 10));
+    await semanaSrv.definirExcecao("2026-11-06", { bloqueio: "manha", feriado: false });
     await semanaSrv.salvarCheckinDeHoje({ disposicao: 2 }, s.quando(6, 10));
 
     const segunda = new Date(2026, 10, 9, 7);
@@ -1342,6 +1345,79 @@ export async function rodarTestes(seed, reportar) {
     eq(padrao[5].manha, true, "a grade começa toda marcada");
     await semanaSrv.salvarDisponibilidade({ ...padrao, 5: { manha: false, noite: true } });
     eq((await semanaSrv.obterDisponibilidade())[5].manha, false);
+  });
+
+  await test("semana: ajuste à mão alerta sem bloquear; desfazer volta; manter vale mais que a regra", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(5, 7);
+    await semanaSrv.situacaoSemana(agora);
+    const SAB = { data: "2026-11-07", periodo: "noite", ordem: 0 };
+    const lowerA = async () => (await agenda.carregarSemana("2026-11-05")).dias.flatMap((d) => d.entradas).find((e) => e.item && e.item.rotulo === "Lower A");
+    const idLower = `item:${s.item(4, "Lower A").id}`;
+
+    const alerta = await semanaSrv.moverComAlerta(await lowerA(), "2026-11-05", SAB, agora);
+    assert(alerta && alerta.motivos.some((m) => m.includes("dias seguidos")), "Lower no sábado e no domingo");
+    eq((await lowerA()).movimento.data, "2026-11-07", "o treino foi para onde foi mandado");
+    assert((await semanaSrv.situacaoSemana(agora)).aviso, "sem decidir, o aviso continua");
+
+    await semanaSrv.desfazerMudanca(alerta, agora);
+    assert(!(await lowerA()).movimento, "desfazer devolve o treino");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false);
+
+    const deNovo = await semanaSrv.moverComAlerta(await lowerA(), "2026-11-05", SAB, agora);
+    await semanaSrv.manterMudanca(deNovo, agora);
+    let sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.aviso, false, sit.avaliacao.motivo);
+    eq(sit.avaliacao.mantidas.length, 1, "a tela mostra o que foi mantido");
+    eq((await repo.obterHistoricoSemana("2026-11-02")).escolhas.at(-1).tipo, "mantida", "fica no histórico");
+
+    // No dia seguinte a corrida ficou sem registro: as rotas tratam dela, não do Lower mantido.
+    const sexta = s.quando(6, 12, 47);
+    const calc = await semanaSrv.recalcular(sexta);
+    eq(calc.tipo, "rotas");
+    assert(!calc.rotas.some((r) => r.ops.some((o) => (o.ids || [o.id]).includes(idLower) && o.tipo !== "naoFazer")), "o Lower mantido fica onde está");
+    await semanaSrv.aceitarRota(calc.rotas[0], sexta);
+    sit = await semanaSrv.situacaoSemana(sexta);
+    eq(sit.aviso, false, sit.avaliacao.motivo);
+    eq(sit.avaliacao.mantidas.length, 1, "aceitar uma rota não apaga a escolha");
+
+    // Na semana seguinte a escolha já não vale, e outra semana não passa pelo motor.
+    const segunda = new Date(2026, 10, 9, 7);
+    eq((await semanaSrv.situacaoSemana(segunda)).estado.ctx.mantidas.regras.size, 0, "a escolha vale só para a semana");
+    const proxima = (await agenda.carregarSemana("2026-11-19")).dias.flatMap((d) => d.entradas).find((e) => e.item && e.item.rotulo === "Lower A");
+    eq(await semanaSrv.moverComAlerta(proxima, "2026-11-19", { data: "2026-11-21", periodo: "noite", ordem: 0 }, segunda), null);
+  });
+
+  await test("semana: ✕ que não tinha para onde ir não avisa depois, quando um horário fica livre", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    await s.marcar(4, "Lower A", "2026-11-05", "feito");
+    const agora = s.quando(6, 18);
+    await repo.marcarStatusPlanned("run-qui", "nao_realizado");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "a corrida não tem para onde ir");
+
+    const lowerB = (await agenda.carregarSemana("2026-11-06")).dias.flatMap((d) => d.entradas).find((e) => e.item && e.item.rotulo === "Lower B");
+    await semanaSrv.manterMudanca(await semanaSrv.moverComAlerta(lowerB, "2026-11-08", { data: "2026-11-06", periodo: "noite", ordem: 0 }, agora), agora);
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "o domingo de manhã abriu, mas o ✕ já tinha sido visto");
+    assert((await semanaSrv.recalcular(agora)).rotas.some((r) => r.ops.some((o) => o.id === "run:run-qui")), "se pedir, Recalcular oferece recuperar");
+  });
+
+  await test("semana: 'manter minha escolha' na tela de rotas cala o aviso e não apaga o sem registro", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(6, 12, 47);
+    assert((await semanaSrv.situacaoSemana(agora)).aviso, "corrida e Lower A de quinta sem registro");
+    await semanaSrv.recalcular(agora);
+    await semanaSrv.manterSemana(agora);
+    const sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.aviso, false);
+    eq(sit.avaliacao.perdidas.length, 2, "continuam para marcar");
+    eq((await semanaSrv.recalcular(agora)).tipo, "rotas", "Recalcular ainda sugere, se pedir");
+    await s.marcar(5, "Leve", "2026-11-06", "nao_feito");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "karatê leve não traz o aviso de volta");
+    await s.marcar(3, "Upper B", "2026-11-04", "nao_feito");
+    assert((await semanaSrv.situacaoSemana(agora)).aviso, "um ✕ novo importante traz");
   });
 
   await reset();

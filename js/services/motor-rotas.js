@@ -12,9 +12,14 @@
 //
 // Dois treinos no mesmo período são permitidos quando o usuário arruma assim; o
 // motor, por conta própria, só usa slots livres. O limite é de 2 treinos por dia.
+//
+// A escolha do usuário vale mais que as regras. `ctx.mantidas` guarda, na semana:
+//   - regras: violações aceitas, que não avisam nem pedem conserto
+//   - fixos: treinos que as rotas não movem, enquanto continuarem no mesmo slot
+//   - semRegistro: treinos sem registro que não geram mais aviso
 
 import {
-  CATALOGO, CHECKIN, CUSTOS, DISPONIBILIDADE_PADRAO, FIM_DO_SLOT, HORA_DE_REFERENCIA,
+  CATALOGO, CHECKIN, CUSTOS, DISPONIBILIDADE_PADRAO, FIM_DO_SLOT, GATILHOS, HORA_DE_REFERENCIA,
   LIMITES, NOITES_DE_KARATE, PARES_PARA_JUNTAR, PENALIDADES, SLOTS_QUE_NUNCA_SUGERE,
 } from "../data/rotas-config.js";
 import { diaDaSemana, diffDias, nomeDiaSemana, paraISODate, somarDias } from "./dates.js";
@@ -155,9 +160,10 @@ function sessoesDaSemana(semana, ctx) {
 /**
  * Monta o estado do motor (puro). `semana` vem de agenda.resumirSemana; `excecoes`
  * são {data, bloqueio, feriado}; `decididos` são ids de treinos com ✕ que vieram
- * de uma rota aceita e não voltam a ser oferecidos para recuperar.
+ * de uma rota aceita e não voltam a ser oferecidos para recuperar; `mantidas` são
+ * as escolhas do usuário nesta semana (ver o topo do arquivo).
  */
-export function montarEstado({ semana, agora, disponibilidade = DISPONIBILIDADE_PADRAO, excecoes = [], checkin = null, decididos = [] }) {
+export function montarEstado({ semana, agora, disponibilidade = DISPONIBILIDADE_PADRAO, excecoes = [], checkin = null, decididos = [], mantidas = {} }) {
   const ctx = {
     inicio: semana.inicio,
     hoje: paraISODate(agora),
@@ -166,6 +172,7 @@ export function montarEstado({ semana, agora, disponibilidade = DISPONIBILIDADE_
     excecoes: Object.fromEntries(excecoes.map((x) => [x.data, x])),
     checkin: { ...CHECKIN.padrao, ...(checkin || {}) },
     decididos: new Set(decididos),
+    mantidas: { regras: new Set(mantidas.regras), fixos: new Set(mantidas.fixos), semRegistro: new Set(mantidas.semRegistro) },
   };
   return { ctx, sessoes: sessoesDaSemana(semana, ctx) };
 }
@@ -182,25 +189,27 @@ function grupoAusenteNoPiso(sessoes, cat) {
 export function violacoes(sessoes, ctx) {
   const v = [];
   const a = sessoes.filter(ehAtiva);
-  const add = (k, texto) => v.push({ k, texto });
+  const add = (k, texto, envolvidas = []) => v.push({ k, texto, ids: envolvidas.map((s) => s.id) });
 
+  // A chave leva o lugar ou o dia: aceitar um problema não cala outro parecido.
   for (const s of a.filter(ehAberta)) {
     const dia = diaDaSemana(s.data);
-    if (s.cat === "intenso" && !(s.periodo === "noite" && NOITES_DE_KARATE.intenso.includes(dia))) add(`karate-dia:${s.id}`, "O karatê intenso só acontece na terça à noite.");
-    if (s.cat === "leve" && !(s.periodo === "noite" && NOITES_DE_KARATE.leve.includes(dia))) add(`karate-dia:${s.id}`, "O karatê leve só acontece nas noites de aula: segunda, quarta ou sexta.");
-    if (slotBloqueado(ctx, s.data, s.periodo)) add(`bloqueio:${s.id}`, `${rotuloCurto(s)} ${noSlot(ctx, s.data, s.periodo)}: você marcou que não pode.`);
+    const lugar = `${s.id}:${s.data}:${s.periodo}`;
+    if (s.cat === "intenso" && !(s.periodo === "noite" && NOITES_DE_KARATE.intenso.includes(dia))) add(`karate-dia:${lugar}`, "O karatê intenso só acontece na terça à noite.", [s]);
+    if (s.cat === "leve" && !(s.periodo === "noite" && NOITES_DE_KARATE.leve.includes(dia))) add(`karate-dia:${lugar}`, "O karatê leve só acontece nas noites de aula: segunda, quarta ou sexta.", [s]);
+    if (slotBloqueado(ctx, s.data, s.periodo)) add(`bloqueio:${lugar}`, `${rotuloCurto(s)} ${noSlot(ctx, s.data, s.periodo)}: você marcou que não pode.`, [s]);
     if (ctx.checkin.fascia && s.cat === "corrida" && s.data === ctx.hoje && !s.encurtada) {
-      add(`fascia:${s.id}`, "Dor na fáscia hoje: a corrida de hoje só pode ser encurtada ou ficar como não feita.");
+      add(`fascia:${s.id}:${s.data}`, "Dor na fáscia hoje: a corrida de hoje só pode ser encurtada ou ficar como não feita.", [s]);
     }
   }
 
   const karates = a.filter((s) => (s.cat === "intenso" || s.cat === "leve") && !(s.opcional && ehAberta(s)));
-  if (karates.length > LIMITES.karatesPorSemana && karates.some(ehAberta)) add("karate-limite", `Mais de ${LIMITES.karatesPorSemana} karatês na semana.`);
+  if (karates.length > LIMITES.karatesPorSemana && karates.some(ehAberta)) add("karate-limite", `Mais de ${LIMITES.karatesPorSemana} karatês na semana.`, karates.filter(ehAberta));
 
   const porDia = new Map();
   for (const s of a) porDia.set(s.data, [...(porDia.get(s.data) || []), s]);
   for (const [data, doDia] of porDia) {
-    if (doDia.length > LIMITES.treinosPorDia && doDia.some(ehAberta)) add(`dia-limite:${data}`, `Mais de ${LIMITES.treinosPorDia} treinos ${noDia(ctx, data)}.`);
+    if (doDia.length > LIMITES.treinosPorDia && doDia.some(ehAberta)) add(`dia-limite:${data}`, `Mais de ${LIMITES.treinosPorDia} treinos ${noDia(ctx, data)}.`, doDia.filter(ehAberta));
   }
 
   for (let i = 0; i < a.length; i++) {
@@ -209,13 +218,14 @@ export function violacoes(sessoes, ctx) {
       if (!ehAberta(p) && !ehAberta(q)) continue;
       const par = (c1, c2) => (p.cat === c1 && q.cat === c2) || (p.cat === c2 && q.cat === c1);
       const mesmoDia = p.data === q.data;
-      if (mesmoDia && (par("leve", "corrida") || par("intenso", "corrida"))) add(`impacto:${p.data}`, `Karatê e corrida ${noDia(ctx, p.data)}, mesmo dia de impacto.`);
-      if (mesmoDia && par("corrida", "corrida")) add(`corrida-dupla:${p.data}`, `Duas corridas ${noDia(ctx, p.data)}.`);
-      if (mesmoDia && par("lower", "intenso")) add(`lower-intenso:${p.data}`, `Lower ${noDia(ctx, p.data)}, dia do karatê intenso.`);
-      if (mesmoDia && par("lower", "lower")) add(`lower-seguido:${p.data}`, `Dois Lower ${noDia(ctx, p.data)}.`);
+      const abertas = [p, q].filter(ehAberta);
+      if (mesmoDia && (par("leve", "corrida") || par("intenso", "corrida"))) add(`impacto:${p.data}`, `Karatê e corrida ${noDia(ctx, p.data)}, mesmo dia de impacto.`, abertas);
+      if (mesmoDia && par("corrida", "corrida")) add(`corrida-dupla:${p.data}`, `Duas corridas ${noDia(ctx, p.data)}.`, abertas);
+      if (mesmoDia && par("lower", "intenso")) add(`lower-intenso:${p.data}`, `Lower ${noDia(ctx, p.data)}, dia do karatê intenso.`, abertas);
+      if (mesmoDia && par("lower", "lower")) add(`lower-seguido:${p.data}`, `Dois Lower ${noDia(ctx, p.data)}.`, abertas);
       if (par("lower", "lower") && Math.abs(diffDias(p.data, q.data)) === 1) {
         const [d1, d2] = p.data < q.data ? [p.data, q.data] : [q.data, p.data];
-        add(`lower-seguido:${d1}`, `Lower em dias seguidos: ${nomeDiaSemana(d1)} e ${nomeDiaSemana(d2)}.`);
+        add(`lower-seguido:${d1}`, `Lower em dias seguidos: ${nomeDiaSemana(d1)} e ${nomeDiaSemana(d2)}.`, abertas);
       }
     }
   }
@@ -223,6 +233,11 @@ export function violacoes(sessoes, ctx) {
   if (grupoAusenteNoPiso(sessoes, "lower")) add("piso:lower", "A semana terminaria sem nenhum Lower.");
   if (grupoAusenteNoPiso(sessoes, "upper")) add("piso:upper", "A semana terminaria sem nenhum Upper.");
   return v;
+}
+
+/** As violações que ainda contam: tira as que o usuário decidiu manter. */
+export function violacoesAbertas(sessoes, ctx) {
+  return violacoes(sessoes, ctx).filter((v) => !ctx.mantidas.regras.has(v.k));
 }
 
 // ---------------------------------------------------------------------------
@@ -278,11 +293,77 @@ function penalidades(sessoes, ctx) {
 // Rota 0
 // ---------------------------------------------------------------------------
 
-/** Avaliação sem mudanças. É barata: roda sozinha para decidir se há aviso. */
+/**
+ * Avaliação sem mudanças. É barata: roda sozinha para decidir se há aviso.
+ * `fora` diz que Reorganizar Semana busca rotas; `aciona` diz que o aviso aparece sozinho:
+ * regra quebrada, ou treino importante sem registro depois do fim do dia e com
+ * para onde ir.
+ */
 export function avaliar(estado) {
-  const v = violacoes(estado.sessoes, estado.ctx);
-  const perdidas = estado.sessoes.filter((s) => s.status === "perdida");
-  return { fora: v.length > 0 || perdidas.length > 0, violacoes: v, perdidas, motivo: v.length ? v[0].texto : null };
+  const { sessoes, ctx } = estado;
+  const todas = violacoes(sessoes, ctx);
+  const v = todas.filter((x) => !ctx.mantidas.regras.has(x.k));
+  const perdidas = sessoes.filter((s) => s.status === "perdida");
+  const aciona = v.length > 0 || perdidas.some((s) => s.data < ctx.hoje && !ctx.mantidas.semRegistro.has(s.id) && valeAvisar(sessoes, ctx, s));
+  return {
+    fora: v.length > 0 || perdidas.length > 0, aciona, violacoes: v, perdidas,
+    mantidas: todas.filter((x) => ctx.mantidas.regras.has(x.k)),
+    motivo: v.length ? v[0].texto : null,
+  };
+}
+
+/** Treino importante que ainda dá para recuperar: é o mínimo para avisar sem ninguém pedir. */
+function valeAvisar(sessoes, ctx, s) {
+  return !s.opcional && CUSTOS.naoFazer[s.cat] >= GATILHOS.custoMinimoParaAvisar && temComoRecuperar(sessoes, ctx, s);
+}
+
+/** Existe outro slot, ou uma sessão combinada, que recebe o treino sem quebrar regra nova? */
+function temComoRecuperar(sessoes, ctx, s) {
+  const iniciais = new Set(violacoesAbertas(sessoes, ctx).map((v) => v.k));
+  const recupera = (op) => (op.tipo === "mover"
+    ? op.id === s.id && (op.data !== s.data || op.periodo !== s.periodo)
+    : op.tipo === "juntar" && op.ids.includes(s.id));
+  return gerarOperacoes(sessoes, ctx, new Set([s.id])).filter(recupera)
+    .some((op) => violacoesAbertas(aplicarOperacao(sessoes, op), ctx).every((v) => iniciais.has(v.k)));
+}
+
+/** Entre estes treinos com ✕ ainda não vistos, os que justificam o aviso. */
+export function xQuePedemAtencao(estado, ids) {
+  const { sessoes, ctx } = estado;
+  return sessoes.filter((s) => ids.includes(s.id) && s.status === "nao_feito" && valeAvisar(sessoes, ctx, s)).map((s) => s.id);
+}
+
+/**
+ * O que um ajuste à mão piorou, comparando a semana antes e depois; null se o
+ * alerta não se justifica. Regra nova sempre alerta; penalidade só a partir do mínimo.
+ */
+export function impactoDaMudanca(antes, depois) {
+  const conhecidas = new Set(violacoes(antes.sessoes, antes.ctx).map((v) => v.k));
+  const regras = violacoesAbertas(depois.sessoes, depois.ctx).filter((v) => !conhecidas.has(v.k));
+  const piorou = somaPesosPenalidades(depois.sessoes, depois.ctx) - somaPesosPenalidades(antes.sessoes, antes.ctx) >= GATILHOS.pioraMinimaParaAlertar;
+  if (!regras.length && !piorou) return null;
+
+  const jaHavia = new Map();
+  for (const p of penalidades(antes.sessoes, antes.ctx)) jaHavia.set(p.texto, (jaHavia.get(p.texto) || 0) + 1);
+  const novas = penalidades(depois.sessoes, depois.ctx).sort((a, b) => b.custo - a.custo).filter((p) => {
+    const n = jaHavia.get(p.texto) || 0;
+    jaHavia.set(p.texto, n - 1);
+    return n <= 0;
+  });
+  const textos = piorou ? [...new Set(novas.map((p) => p.texto))].map((t) => `Esta mudança ${t}.`) : [];
+  return { regras, motivos: [...regras.map((v) => v.texto), ...textos].slice(0, LIMITES.motivosNoAlerta) };
+}
+
+const chaveDoFixo = (s) => `${s.id}|${s.data}|${s.periodo}`;
+
+/** O que guardar em `mantidas.fixos` para estes treinos: só vale no slot em que estão agora. */
+export function fixosDe(sessoes, ids) {
+  return sessoes.filter((s) => ids.includes(s.id)).map(chaveDoFixo);
+}
+
+/** Id da sessão no motor, para quem tem a entrada da agenda (só sessão e corrida se movem). */
+export function idDaEntrada(e) {
+  return e.tipo === "corrida" ? `run:${e.planned.id}` : `item:${e.item.id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,10 +376,11 @@ function gerarOperacoes(sessoes, ctx, reabrir = new Set()) {
   const ops = [];
   const candidatas = sessoes.filter((s) => s.cat !== "outro" && !s.criada && (s.status === "pendente" || s.status === "perdida" || reabrir.has(s.id)));
   const livres = slotsLivres(sessoes, ctx);
+  const fixa = (s) => s.status === "pendente" && ctx.mantidas.fixos.has(chaveDoFixo(s));
 
   for (const s of candidatas) {
     const presaPelaFascia = ctx.checkin.fascia && s.cat === "corrida" && s.data === ctx.hoje && s.status === "pendente";
-    if (!s.combinada && !presaPelaFascia) {
+    if (!s.combinada && !presaPelaFascia && !fixa(s)) {
       for (const l of livres) ops.push({ tipo: "mover", id: s.id, data: l.data, periodo: l.periodo, reabrir: reabrir.has(s.id), custo: CUSTOS.mover });
     }
     if (ctx.checkin.fascia && s.cat === "corrida" && s.data === ctx.hoje && s.status === "pendente" && !s.encurtada) {
@@ -308,8 +390,8 @@ function gerarOperacoes(sessoes, ctx, reabrir = new Set()) {
   }
 
   for (const [a, b] of PARES_PARA_JUNTAR) {
-    const sa = candidatas.find((s) => s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(a));
-    const sb = candidatas.find((s) => s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(b));
+    const sa = candidatas.find((s) => !fixa(s) && s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(a));
+    const sb = candidatas.find((s) => !fixa(s) && s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(b));
     if (!sa || !sb) continue;
     const proprios = [sa, sb].filter((s) => !slotPassou(ctx, s.data, s.periodo) && slotPodeSerSugerido(ctx, s.data, s.periodo)).map((s) => ({ data: s.data, periodo: s.periodo }));
     for (const destino of [...proprios, ...livres]) {
@@ -338,7 +420,8 @@ const assinaturaSessoes = (sessoes) => sessoes.map((s) => `${s.id}:${s.status}:$
 
 /** Identifica a situação da semana: mudou algo, as rotas calculadas antes já não valem. */
 export function assinaturaDoEstado(estado) {
-  return `${assinaturaSessoes(estado.sessoes)}#${JSON.stringify(estado.ctx.checkin)}#${JSON.stringify(estado.ctx.excecoes)}`;
+  const { regras, fixos } = estado.ctx.mantidas;
+  return `${assinaturaSessoes(estado.sessoes)}#${JSON.stringify(estado.ctx.checkin)}#${JSON.stringify(estado.ctx.excecoes)}#${[...regras, ...fixos].join()}`;
 }
 
 /** Mudança em linguagem natural. `sessoes` = o estado ANTES da operação. */
@@ -427,14 +510,14 @@ function rotasDiferentes(rotas, limite) {
 // Busca de rotas
 // ---------------------------------------------------------------------------
 
-/** Treinos com ✕ que o motor pode reabrir: só com o piso de musculação quebrado. */
-function reabrirParaOPiso(sessoes) {
-  const faltam = ["lower", "upper"].filter((cat) => grupoAusenteNoPiso(sessoes, cat));
+/** Treinos com ✕ que o motor pode reabrir: só com o piso de musculação quebrado (e não mantido). */
+function reabrirParaOPiso(sessoes, ctx) {
+  const faltam = ["lower", "upper"].filter((cat) => grupoAusenteNoPiso(sessoes, cat) && !ctx.mantidas.regras.has(`piso:${cat}`));
   return new Set(sessoes.filter((s) => s.status === "nao_feito" && !s.combinada && faltam.includes(s.cat)).map((s) => s.id));
 }
 
 function buscaEmCamadas(sessoes, ctx, { reabrir, ehFim, filtroOp = () => true, aoDescartar = () => {}, seguirDepoisDoFim = false, mudancasNecessarias = () => 0 }) {
-  const iniciais = new Set(violacoes(sessoes, ctx).map((v) => v.k));
+  const iniciais = new Set(violacoesAbertas(sessoes, ctx).map((v) => v.k));
   const vistos = new Set([assinaturaSessoes(sessoes)]);
   const fins = [];
   let camada = [{ sessoes, ops: [] }];
@@ -450,7 +533,7 @@ function buscaEmCamadas(sessoes, ctx, { reabrir, ehFim, filtroOp = () => true, a
         const assinatura = assinaturaSessoes(sessoesNovas);
         if (vistos.has(assinatura)) continue;
         vistos.add(assinatura);
-        const novas = violacoes(sessoesNovas, ctx).filter((v) => !iniciais.has(v.k));
+        const novas = violacoesAbertas(sessoesNovas, ctx).filter((v) => !iniciais.has(v.k));
         if (novas.length) {
           if (profundidade === 1) aoDescartar(op, no.sessoes, novas[0]);
           continue;
@@ -495,9 +578,9 @@ function ideiasDescartadas(lista, ctx) {
  */
 export function calcularRotas(estado) {
   const { sessoes, ctx } = estado;
-  const reabrir = reabrirParaOPiso(sessoes);
+  const reabrir = reabrirParaOPiso(sessoes, ctx);
   const descartes = [];
-  const resolvida = (lista) => violacoes(lista, ctx).length === 0 && !lista.some((s) => s.status === "perdida");
+  const resolvida = (lista) => violacoesAbertas(lista, ctx).length === 0 && !lista.some((s) => s.status === "perdida");
   const perdidasDe = (lista) => lista.filter((s) => s.status === "perdida").length;
 
   // Cada operação resolve no máximo duas perdidas (juntar).
@@ -527,7 +610,7 @@ export function calcularRotas(estado) {
   const pisoGarantido = (lista) => {
     const fechada = semPerdidas(lista);
     const k = new Set(violacoes(sessoes.filter((s) => s.status !== "perdida"), ctx).map((v) => v.k).filter((x) => !x.startsWith("piso:")));
-    return violacoes(fechada, ctx).every((v) => k.has(v.k));
+    return violacoesAbertas(fechada, ctx).every((v) => k.has(v.k));
   };
   // Entre as saídas que garantem o piso, vale a que cobre mais musculação.
   const musculacaoCoberta = (lista) => lista.filter((s) => ["lower", "upper"].includes(s.cat) && !s.criada && ["feito", "pendente", "mesclada"].includes(s.status)).length;
@@ -567,7 +650,7 @@ export function calcularOfertas(estado) {
   const operacoes = gerarOperacoes(sessoes, ctx, reabrir).filter((o) => o.tipo === "mover" || o.tipo === "juntar");
   const pesoAtual = somaPesos(pesos);
   const candidatas = [];
-  const valida = (lista) => violacoes(lista, ctx).length === 0 && !lista.some((s) => s.status === "perdida");
+  const valida = (lista) => violacoesAbertas(lista, ctx).length === 0 && !lista.some((s) => s.status === "perdida");
 
   for (const op of operacoes) {
     const final = aplicarOperacao(sessoes, op);

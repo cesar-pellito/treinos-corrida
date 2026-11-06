@@ -3,16 +3,16 @@
 // views da corrida, embutidas.
 
 import * as repo from "../data/repository.js";
-import { carregarSemana, primeiroDiaSemana, podeMover, moverEntrada, ROTULO_PERIODO, rotuloPeriodoNoDia } from "../services/agenda.js";
+import { carregarSemana, primeiroDiaSemana, podeMover, ROTULO_PERIODO, rotuloPeriodoNoDia } from "../services/agenda.js";
 import { resumoHoje } from "../services/schedule.js";
 import { hoje as hojeISO, somarDias, inicioDaSemana, deISODate, nomeDiaSemana } from "../services/dates.js";
 import { irPara, recarregar } from "./router.js";
-import { el, card, botao, tituloVista, segmentos, barraProgresso, toast } from "./components/ui.js";
+import { el, card, botao, tituloVista, segmentos, barraProgresso } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/agenda-ui.js";
 import { sheetJuntar } from "./components/merge-ui.js";
 import { pendentesDaSemana } from "../services/merge.js";
 import { ativarArrastar } from "./components/arrastar.js";
-import { avisoSemana } from "./components/aviso-semana.js";
+import { avisoSemana, moverComAviso } from "./components/aviso-semana.js";
 import { atualizarResultadoSemana } from "../services/semana.js";
 import { renderCalendario } from "./calendar.js";
 import { renderEvolucao } from "./evolution.js";
@@ -111,13 +111,7 @@ async function renderSemana(container) {
     linhas: arrastaveis,
     aoSoltar: async ({ contexto, data, periodo, indice, vizinhas }) => {
       const ordem = ordemNaPosicao(vizinhas.map((n) => Number(n.dataset.ordem)), indice);
-      try {
-        await moverEntrada(contexto.entrada, contexto.data, { data, periodo, ordem });
-        toast(`Movido para ${nomeDiaSemana(data)} · ${rotuloPeriodoNoDia(periodo, data).toLowerCase()}`);
-      } catch (e) {
-        toast("Não foi possível mover: " + (e && e.message));
-      }
-      await recarregar();
+      await moverComAviso(contexto.entrada, contexto.data, { data, periodo, ordem }, `Movido para ${nomeDiaSemana(data)} · ${rotuloPeriodoNoDia(periodo, data).toLowerCase()}`);
     },
   });
 

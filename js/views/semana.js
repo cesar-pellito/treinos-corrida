@@ -1,8 +1,9 @@
-// semana.js — aba Semana: check-in do dia, status da semana, rotas sugeridas e a
-// grade de 7 dias × 2 slots. O app só sugere: nada muda sem tocar em Aceitar.
+// semana.js — aba Semana: check-in do dia, status da semana, opções para reorganizar
+// e a grade de 7 dias × 2 slots. O app só sugere: nada muda sem tocar em Aceitar.
+// No código, cada opção é uma "rota"; a palavra não aparece na tela.
 
 import {
-  aceitarRota, definirExcecao, desfazerRota, manterComoEsta, recalcular, rotaParaDesfazer, salvarCheckinDeHoje, situacaoSemana,
+  aceitarRota, definirExcecao, desfazerRota, manterComoEsta, manterSemana, recalcular, rotaParaDesfazer, salvarCheckinDeHoje, situacaoSemana,
 } from "../services/semana.js";
 import { slotPassou, slotPodeSerSugerido } from "../services/motor-rotas.js";
 import { alternarCorridaNaoFeita, alternarSessao, ROTULO_TIPO } from "../services/agenda.js";
@@ -14,7 +15,7 @@ import { recarregar } from "./router.js";
 import { el, card, botao, tituloVista, abrirSheet, seletorBotoes, toast } from "./components/ui.js";
 import { abrirFolhaEntrada, abrirRegistroCorrida, agir, botoesStatus } from "./components/agenda-ui.js";
 
-// Resultado do último Recalcular. Só vale enquanto a semana não mudar (assinatura).
+// Resultado do último Reorganizar Semana. Só vale enquanto a semana não mudar (assinatura).
 let ultimoCalculo = null;
 let checkinAberto = null;
 
@@ -105,22 +106,32 @@ function linhaSemRegistro(sessao) {
 
 function cardStatus(sit, aoRecalcular) {
   const { avaliacao, pendente, aviso } = sit;
-  const botaoRecalcular = botao("Recalcular semana de treinos", { variante: aviso ? "primary" : undefined, bloco: true, onClick: aoRecalcular });
+  const botaoRecalcular = botao("Reorganizar Semana", { variante: aviso ? "primary" : undefined, bloco: true, onClick: aoRecalcular });
+  const n = avaliacao.perdidas.length;
+  const semRegistro = n ? [
+    el("p", { class: "strong", text: `${n} ${n === 1 ? "treino" : "treinos"} sem registro` }),
+    el("p", { class: "sub", text: "Marque o que você fez e depois reorganize." }),
+    ...avaliacao.perdidas.map(linhaSemRegistro),
+  ] : [];
+  const mantidas = avaliacao.mantidas.length
+    ? el("p", { class: "sub", text: `Você manteve: ${avaliacao.mantidas.map((v) => v.texto).join(" ")}` })
+    : null;
   if (!aviso) {
-    return el("section", { class: "card semana-status semana-status--ok" }, [
-      el("p", { class: "strong", text: "Semana em dia, segue como está" }),
+    // Sem registro que não justifica aviso (hoje, karatê leve, sem para onde ir): só lembra de marcar.
+    return el("section", { class: `card semana-status${n ? "" : " semana-status--ok"}` }, [
+      n ? null : el("p", { class: "strong", text: "Semana em dia, segue como está" }),
+      ...semRegistro,
+      mantidas,
       botaoRecalcular,
     ]);
   }
-  const n = avaliacao.perdidas.length;
   return el("section", { class: "card semana-status semana-status--aviso" }, [
-    el("p", { class: "eyebrow", text: "Sua semana mudou" }),
+    el("p", { class: "eyebrow", text: "Sua semana mudou. Quer reorganizar?" }),
     avaliacao.motivo ? el("p", { class: "strong", text: avaliacao.motivo }) : null,
-    n ? el("p", { class: "strong", text: `${n} ${n === 1 ? "treino" : "treinos"} sem registro` }) : null,
-    n ? el("p", { class: "sub", text: "Marque o que você fez e depois recalcule." }) : null,
-    ...avaliacao.perdidas.map(linhaSemRegistro),
-    pendente && !avaliacao.fora ? el("p", { class: "strong", text: "Registros atualizados" }) : null,
-    pendente && !avaliacao.fora ? el("p", { class: "sub", text: "Toque em Recalcular para atualizar a semana." }) : null,
+    ...semRegistro,
+    pendente ? el("p", { class: "strong", text: "Treino com ✕ que dá para recuperar" }) : null,
+    pendente ? el("p", { class: "sub", text: "Toque em Reorganizar Semana para ver as opções." }) : null,
+    mantidas,
     botaoRecalcular,
   ]);
 }
@@ -133,14 +144,14 @@ function cardDesfazer(guardada) {
   const desfazer = botao("Desfazer", {
     bloco: true, onClick: async () => {
       desfazer.disabled = true;
-      try { await desfazerRota(); toast("Rota desfeita."); }
+      try { await desfazerRota(); toast("Mudanças desfeitas."); }
       catch (e) { toast("Não foi possível desfazer: " + (e && e.message)); }
       ultimoCalculo = null;
       await recarregar();
     },
   });
   return el("section", { class: "card rota" }, [
-    el("p", { class: "eyebrow", text: "Rota aceita" }),
+    el("p", { class: "eyebrow", text: "Treinos Reorganizados" }),
     guardada.mudancas.length ? el("ul", {}, guardada.mudancas.map((m) => el("li", { text: m }))) : null,
     desfazer,
   ]);
@@ -151,8 +162,8 @@ function cardRota(rota) {
   const aceitar = botao("Aceitar", {
     variante: "primary", bloco: true, onClick: async () => {
       aceitar.disabled = true;
-      try { await aceitarRota(rota); toast("Rota aceita."); }
-      catch (e) { toast("Parte da rota não foi aplicada: " + (e && e.message)); }
+      try { await aceitarRota(rota); toast("Treinos Reorganizados."); }
+      catch (e) { toast("Parte das mudanças não foi aplicada: " + (e && e.message)); }
       ultimoCalculo = null;
       await recarregar();
     },
@@ -172,6 +183,25 @@ function secaoDescartadas(descartadas) {
   return el("details", { class: "card" }, [
     el("summary", { text: "O que não fazer?" }),
     el("ul", {}, descartadas.map((d) => el("li", { text: d }))),
+  ]);
+}
+
+/** Sobrepõe o motor: a semana fica como está e o aviso só volta se surgir algo novo. */
+function cardManterEscolha() {
+  const manter = botao("Manter minha escolha", {
+    bloco: true, onClick: async () => {
+      manter.disabled = true;
+      try { await manterSemana(); toast("Escolha mantida."); }
+      catch (e) { toast("Não foi possível salvar: " + (e && e.message)); }
+      ultimoCalculo = null;
+      await recarregar();
+    },
+  });
+  return el("section", { class: "card rota" }, [
+    el("p", { class: "eyebrow", text: "Sem mudanças" }),
+    el("p", { class: "strong", text: "Deixar a semana como está" }),
+    el("p", { class: "sub", text: "O aviso só volta se surgir algo novo. Treino sem registro continua aqui para você marcar." }),
+    manter,
   ]);
 }
 
@@ -206,15 +236,17 @@ function secaoRotas(calculo) {
     return el("div", { class: "rotas", id: "rotas" }, [
       el("section", { class: "card semana-status semana-status--comprometida" }, [
         el("p", { class: "strong", text: "Semana comprometida" }),
-        el("p", { class: "sub", text: calculo.rotas.length ? "Não há rota com até 3 mudanças para tudo. Esta garante o piso de musculação." : "Não há rota que garanta o piso de musculação nesta semana." }),
+        el("p", { class: "sub", text: calculo.rotas.length ? "Não dá para resolver tudo com até 3 mudanças. Esta opção garante o piso de musculação." : "Nenhuma opção garante o piso de musculação nesta semana." }),
       ]),
       ...calculo.rotas.map(cardRota),
+      cardManterEscolha(),
       secaoDescartadas(calculo.descartadas),
     ]);
   }
   return el("div", { class: "rotas", id: "rotas" }, [
-    el("p", { class: "eyebrow", text: "Rotas sugeridas" }),
+    el("p", { class: "eyebrow", text: "Opções de Treinos" }),
     ...calculo.rotas.map(cardRota),
+    cardManterEscolha(),
     secaoDescartadas(calculo.descartadas),
   ]);
 }
@@ -330,7 +362,7 @@ export async function renderSemana(container) {
       ultimoCalculo = calculo;
       if (calculo.tipo === "em_dia") { ultimoCalculo = null; toast("Semana em dia, segue como está."); }
     } catch (e) {
-      toast("Não foi possível recalcular: " + (e && e.message));
+      toast("Não foi possível reorganizar: " + (e && e.message));
     }
     await recarregar();
     const rotas = document.getElementById("rotas");
