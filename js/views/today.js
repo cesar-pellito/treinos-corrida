@@ -12,6 +12,8 @@ import { el, card, botao, tituloVista } from "./components/ui.js";
 import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana, detalheCorrida } from "./components/agenda-ui.js";
 import { sheetJuntar } from "./components/merge-ui.js";
 import { pendentesDaSemana, atrasadasDaSemana } from "../services/merge.js";
+import { idDaEntrada } from "../services/motor-rotas.js";
+import { semRegistroMantido } from "../services/semana.js";
 import { cardProteina, cardRefeicoesHoje } from "./components/nutricao-ui.js";
 import { avisoSemana } from "./components/aviso-semana.js";
 
@@ -21,15 +23,15 @@ function dataExtensa(iso) {
   return `${dia.charAt(0).toUpperCase()}${dia.slice(1)}, ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function cardAgenda(entradas, data, resumoCorrida, semana) {
+function cardAgenda(entradas, data, resumoCorrida, semana, mantidos) {
   const filhos = [el("p", { class: "eyebrow", text: "Agenda de hoje" })];
   if (!entradas.length) {
     filhos.push(el("p", { class: "sub", text: "Nada previsto para hoje." }));
   } else {
     filhos.push(el("div", { class: "agenda-lista" }, entradas.map((e) => linhaEntrada(e, data, { resumoCorrida }))));
   }
-  // musculação atrasada na semana: oferece juntar duas pendentes numa só
-  const atrasadas = atrasadasDaSemana(semana, data);
+  // musculação atrasada na semana: oferece juntar duas pendentes numa só. Não cobra o que foi mantido.
+  const atrasadas = atrasadasDaSemana(semana, data).filter((p) => !mantidos.has(idDaEntrada(p.entrada)));
   if (atrasadas.length && pendentesDaSemana(semana).length >= 2) {
     const nomes = atrasadas.map((p) => p.entrada.item.rotulo).join(", ");
     filhos.push(el("p", { class: "sub pequeno aviso-atraso", text: `Ficou para trás nesta semana: ${nomes}.` }));
@@ -88,13 +90,14 @@ function avisoLacuna(ontem) {
 export async function renderHoje(container) {
   const data = hojeISO();
   const plan = await repo.planoAtivo();
-  const [entradas, semana, resumoCorrida, nutricao, lacuna, aviso] = await Promise.all([
+  const [entradas, semana, resumoCorrida, nutricao, lacuna, aviso, mantidos] = await Promise.all([
     carregarDia(data),
     carregarSemana(data),
     plan ? resumoHoje(plan, data) : Promise.resolve(null),
     carregarDiaNutricao(data),
     lacunaOntem(data),
     avisoSemana(),
+    semRegistroMantido(),
   ]);
 
   container.appendChild(tituloVista("Hoje"));
@@ -102,7 +105,7 @@ export async function renderHoje(container) {
   if (aviso) container.appendChild(aviso);
   if (lacuna) container.appendChild(avisoLacuna(lacuna));
 
-  container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana));
+  container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana, mantidos));
   container.appendChild(cardProteina(nutricao));
   container.appendChild(cardRefeicoesHoje(nutricao));
   container.appendChild(cardResumoSemana(semana, { titulo: "Esta semana" }));

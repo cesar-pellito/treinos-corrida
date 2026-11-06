@@ -1403,7 +1403,31 @@ export async function rodarTestes(seed, reportar) {
     assert((await semanaSrv.recalcular(agora)).rotas.some((r) => r.ops.some((o) => o.id === "run:run-qui")), "se pedir, Recalcular oferece recuperar");
   });
 
-  await test("semana: 'manter minha escolha' na tela de rotas cala o aviso e não apaga o sem registro", async () => {
+  await test("semana: Manter Atual desarma os alertas sem passar por Reorganizar; só algo novo arma de novo", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(6, 12, 47);
+    await semanaSrv.situacaoSemana(agora);
+    await s.marcar(3, "Upper B", "2026-11-04", "nao_feito");
+    let sit = await semanaSrv.situacaoSemana(agora);
+    assert(sit.aviso && sit.pendente, "treinos sem registro e ✕ novo");
+
+    await semanaSrv.manterSemana(agora);
+    sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.aviso, false, sit.avaliacao.motivo);
+    eq(sit.pendente, false, "o ✕ conta como visto");
+    const mantidos = await semanaSrv.semRegistroMantido(agora);
+    assert(mantidos.has(`item:${s.item(4, "Lower A").id}`), "o Hoje não cobra mais o Lower A");
+
+    await s.marcar(5, "Leve", "2026-11-06", "feito");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "marcar treino sem problema novo não arma");
+    await s.marcar(3, "Leve", "2026-11-04", "nao_feito");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "karatê leve não arma");
+    await s.marcar(1, "Upper A", "2026-11-02", "nao_feito");
+    assert((await semanaSrv.situacaoSemana(agora)).aviso, "✕ novo em treino importante arma");
+  });
+
+  await test("semana: Manter Atual depois de ver as opções também cala o aviso e não apaga o sem registro", async () => {
     const s = await prepararSemanaDeTeste();
     await semanaEmDiaAteQuarta(s);
     const agora = s.quando(6, 12, 47);

@@ -234,13 +234,14 @@ export async function desfazerMudanca(alerta, agora = new Date()) {
   await repo.restaurarSemana(alerta.foto, await faixaDaSemana(paraISODate(agora)));
 }
 
-async function guardarMantidas(agora, { regras = [], ids = [], semRegistro = [] }) {
+async function guardarMantidas(agora, { regras = [], ids = [], semRegistro = [], verX = false }) {
   const { estado, semana, controle } = await carregarEstado(agora);
   const base = controle || { inicio: semana.inicio, nao: idsComX(estado), decididos: [] };
   const atuais = base.mantidas || {};
   const somar = (chave, novos) => [...new Set([...(atuais[chave] || []), ...novos])];
   await repo.definirConfig(CHAVE_CONTROLE, {
     ...base,
+    nao: verX ? idsComX(estado) : base.nao,
     mantidas: { regras: somar("regras", regras), fixos: somar("fixos", fixosDe(estado.sessoes, ids)), semRegistro: somar("semRegistro", semRegistro) },
   });
 }
@@ -251,12 +252,19 @@ export async function manterMudanca(alerta, agora = new Date()) {
   await registrarEscolha(paraISODate(agora), { tipo: "mantida", mudancas: alerta.motivos, custo: 0 });
 }
 
-/** "Manter minha escolha" na tela de rotas: vale para tudo o que a semana avisa agora. */
+/** "Manter Atual": desarma tudo o que a semana avisa agora; só o que surgir depois avisa de novo. */
 export async function manterSemana(agora = new Date()) {
   const { estado } = await carregarEstado(agora);
   const { violacoes, perdidas } = avaliar(estado);
-  await guardarMantidas(agora, { regras: violacoes.map((v) => v.k), ids: violacoes.flatMap((v) => v.ids), semRegistro: perdidas.map((s) => s.id) });
+  await guardarMantidas(agora, { regras: violacoes.map((v) => v.k), ids: violacoes.flatMap((v) => v.ids), semRegistro: perdidas.map((s) => s.id), verX: true });
   await registrarEscolha(paraISODate(agora), { tipo: "mantida", mudancas: violacoes.map((v) => v.texto), custo: 0 });
+}
+
+/** Treinos sem registro que o usuário decidiu deixar assim: os alertas não falam mais deles. */
+export async function semRegistroMantido(agora = new Date()) {
+  const faixa = await faixaDaSemana(paraISODate(agora));
+  const controle = await lerControle(faixa.de);
+  return new Set(controle && controle.mantidas ? controle.mantidas.semRegistro : []);
 }
 
 // ---------------------------------------------------------------------------

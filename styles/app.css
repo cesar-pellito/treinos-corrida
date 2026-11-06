@@ -581,6 +581,8 @@ body.arrastando .slot--vazio.slot--alvo { border-color: transparent; background:
 .semana-status { display: grid; gap: 8px; }
 .semana-status .eyebrow { margin: 0; }
 .semana-status p { margin: 0; }
+.semana-status__acoes { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.semana-status__acoes .btn { padding-inline: 8px; }
 .semana-status--aviso { background: var(--warn-weak); border-color: var(--warn); }
 .semana-status--aviso .eyebrow { color: var(--warn); }
 .semana-status--ok { background: var(--ok-weak); border-color: var(--ok); }

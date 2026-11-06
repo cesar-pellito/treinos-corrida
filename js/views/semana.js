@@ -107,6 +107,19 @@ function linhaSemRegistro(sessao) {
 function cardStatus(sit, aoRecalcular) {
   const { avaliacao, pendente, aviso } = sit;
   const botaoRecalcular = botao("Reorganizar Semana", { variante: aviso ? "primary" : undefined, bloco: true, onClick: aoRecalcular });
+  const manter = botao("Manter Atual", {
+    bloco: true, onClick: async () => {
+      manter.disabled = true;
+      try { await manterSemana(); toast("Mantido. Os alertas só voltam se surgir algo novo."); }
+      catch (e) { toast("Não foi possível salvar: " + (e && e.message)); }
+      ultimoCalculo = null;
+      await recarregar();
+    },
+  });
+  // As ofertas têm o próprio "Manter"; sem aviso nem opções na tela, não há o que manter.
+  const acoes = aviso || (ultimoCalculo && ultimoCalculo.tipo !== "ofertas")
+    ? el("div", { class: "semana-status__acoes" }, [botaoRecalcular, manter])
+    : botaoRecalcular;
   const n = avaliacao.perdidas.length;
   const semRegistro = n ? [
     el("p", { class: "strong", text: `${n} ${n === 1 ? "treino" : "treinos"} sem registro` }),
@@ -122,7 +135,7 @@ function cardStatus(sit, aoRecalcular) {
       n ? null : el("p", { class: "strong", text: "Semana em dia, segue como está" }),
       ...semRegistro,
       mantidas,
-      botaoRecalcular,
+      acoes,
     ]);
   }
   return el("section", { class: "card semana-status semana-status--aviso" }, [
@@ -132,7 +145,7 @@ function cardStatus(sit, aoRecalcular) {
     pendente ? el("p", { class: "strong", text: "Treino com ✕ que dá para recuperar" }) : null,
     pendente ? el("p", { class: "sub", text: "Toque em Reorganizar Semana para ver as opções." }) : null,
     mantidas,
-    botaoRecalcular,
+    acoes,
   ]);
 }
 
@@ -186,25 +199,6 @@ function secaoDescartadas(descartadas) {
   ]);
 }
 
-/** Sobrepõe o motor: a semana fica como está e o aviso só volta se surgir algo novo. */
-function cardManterEscolha() {
-  const manter = botao("Manter minha escolha", {
-    bloco: true, onClick: async () => {
-      manter.disabled = true;
-      try { await manterSemana(); toast("Escolha mantida."); }
-      catch (e) { toast("Não foi possível salvar: " + (e && e.message)); }
-      ultimoCalculo = null;
-      await recarregar();
-    },
-  });
-  return el("section", { class: "card rota" }, [
-    el("p", { class: "eyebrow", text: "Sem mudanças" }),
-    el("p", { class: "strong", text: "Deixar a semana como está" }),
-    el("p", { class: "sub", text: "O aviso só volta se surgir algo novo. Treino sem registro continua aqui para você marcar." }),
-    manter,
-  ]);
-}
-
 function secaoOfertas(calculo) {
   const manter = botao("Manter", {
     bloco: true, onClick: async () => {
@@ -239,14 +233,12 @@ function secaoRotas(calculo) {
         el("p", { class: "sub", text: calculo.rotas.length ? "Não dá para resolver tudo com até 3 mudanças. Esta opção garante o piso de musculação." : "Nenhuma opção garante o piso de musculação nesta semana." }),
       ]),
       ...calculo.rotas.map(cardRota),
-      cardManterEscolha(),
       secaoDescartadas(calculo.descartadas),
     ]);
   }
   return el("div", { class: "rotas", id: "rotas" }, [
     el("p", { class: "eyebrow", text: "Opções de Treinos" }),
     ...calculo.rotas.map(cardRota),
-    cardManterEscolha(),
     secaoDescartadas(calculo.descartadas),
   ]);
 }
@@ -355,6 +347,7 @@ export async function renderSemana(container) {
   const agora = new Date();
   const sit = await situacaoSemana(agora);
   const paraDesfazer = await rotaParaDesfazer(agora);
+  if (ultimoCalculo && ultimoCalculo.assinatura !== sit.assinatura) ultimoCalculo = null;
 
   const aoRecalcular = async () => {
     try {
@@ -376,7 +369,6 @@ export async function renderSemana(container) {
   container.appendChild(cardCheckin(sit.checkin));
   if (paraDesfazer) container.appendChild(cardDesfazer(paraDesfazer));
   container.appendChild(cardStatus(sit, aoRecalcular));
-  if (ultimoCalculo && ultimoCalculo.assinatura === sit.assinatura) container.appendChild(secaoRotas(ultimoCalculo));
-  else if (ultimoCalculo) ultimoCalculo = null;
+  if (ultimoCalculo) container.appendChild(secaoRotas(ultimoCalculo));
   container.appendChild(cardGrade(sit));
 }
