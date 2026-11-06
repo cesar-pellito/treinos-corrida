@@ -2,7 +2,7 @@
 // grade de 7 dias × 2 slots. O app só sugere: nada muda sem tocar em Aceitar.
 
 import {
-  aceitarRota, definirExcecao, manterComoEsta, recalcular, salvarCheckinDeHoje, situacaoSemana,
+  aceitarRota, definirExcecao, desfazerRota, manterComoEsta, recalcular, rotaParaDesfazer, salvarCheckinDeHoje, situacaoSemana,
 } from "../services/semana.js";
 import { slotPassou } from "../services/motor-rotas.js";
 import { alternarCorridaNaoFeita, alternarSessao, ROTULO_TIPO } from "../services/agenda.js";
@@ -128,6 +128,23 @@ function cardStatus(sit, aoRecalcular) {
 // ---------------------------------------------------------------------------
 // Rotas
 // ---------------------------------------------------------------------------
+
+function cardDesfazer(guardada) {
+  const desfazer = botao("Desfazer", {
+    bloco: true, onClick: async () => {
+      desfazer.disabled = true;
+      try { await desfazerRota(); toast("Rota desfeita."); }
+      catch (e) { toast("Não foi possível desfazer: " + (e && e.message)); }
+      ultimoCalculo = null;
+      await recarregar();
+    },
+  });
+  return el("section", { class: "card rota" }, [
+    el("p", { class: "eyebrow", text: "Rota aceita" }),
+    guardada.mudancas.length ? el("ul", {}, guardada.mudancas.map((m) => el("li", { text: m }))) : null,
+    desfazer,
+  ]);
+}
 
 function cardRota(rota) {
   const n = rota.ops.length;
@@ -306,6 +323,7 @@ function cardGrade(sit) {
 export async function renderSemana(container) {
   const agora = new Date();
   const sit = await situacaoSemana(agora);
+  const paraDesfazer = await rotaParaDesfazer(agora);
 
   const aoRecalcular = async () => {
     try {
@@ -325,6 +343,7 @@ export async function renderSemana(container) {
     el("span", { class: "muted pequeno", text: horaAgora(agora) }),
   ]));
   container.appendChild(cardCheckin(sit.checkin));
+  if (paraDesfazer) container.appendChild(cardDesfazer(paraDesfazer));
   container.appendChild(cardStatus(sit, aoRecalcular));
   if (ultimoCalculo && ultimoCalculo.assinatura === sit.assinatura) container.appendChild(secaoRotas(ultimoCalculo));
   else if (ultimoCalculo) ultimoCalculo = null;

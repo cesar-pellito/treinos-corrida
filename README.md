@@ -134,6 +134,7 @@ O motor (`js/services/motor-rotas.js`) é um conjunto de funções puras: recebe
 - **Treino com ✕** fica como está. O motor só o reabre sozinho se o piso de musculação estiver quebrado.
 - **Recalcular:** a checagem automática só decide se há aviso. As rotas só são buscadas no botão **Recalcular semana de treinos**, e marcar treinos mostra "Registros atualizados" até você tocar nele. Com a semana em dia, o botão oferece "Manter como está" e alternativas, quando o check-in pesa num treino de hoje ou quando dá para recuperar um treino com ✕ (o ✕ de uma rota aceita não volta a ser oferecido).
 - **Rotas:** até 3 mudanças (mover, juntar, encurtar, não fazer), em camadas de 1, 2 e 3; custo = operações + penalidades; até 3 rotas, sem repetir a mesma semana final.
+- **Desfazer:** depois de aceitar uma rota, a aba Semana mostra o que ela mudou e o botão **Desfazer**, que volta tudo como estava. O botão fica disponível até algum treino da semana mudar; check-in e exceções não contam.
 - **Semana comprometida:** sem rota para tudo, a rota garante o piso de musculação com o que dá tempo, e o resto sem registro vira não feito ao aceitar. Tudo pode ser corrigido depois.
 - **Check-in:** vale só para o dia. Disposição 1 e 2 = cansado; dor em Upper ou Lower pesa no treino de hoje; só a dor na fáscia gera aviso sozinha. Sem check-in: disposição 3 e sem dor.
 - **Fechamento:** sem servidor, a semana fecha na primeira abertura depois de domingo: o pendente vira não feito (menos a aula opcional). Semana fechada continua editável, e o resultado acompanha.
@@ -314,6 +315,7 @@ Marque cada item ao validar uma nova instalação.
 - [ ] Treino sem registro aparece na aba Semana e gera "Sua semana mudou, ver rotas" em Hoje e Treinos.
 - [ ] Marcar treinos mostra "Registros atualizados"; a semana só muda ao tocar em Recalcular.
 - [ ] Aceitar uma rota volta a "Semana em dia, segue como está".
+- [ ] Depois de aceitar, "Desfazer" volta a semana como estava; marcar um treino tira o botão.
 - [ ] Check-in: disposição e dor muscular não geram aviso; fáscia "sim" no dia da corrida gera.
 - [ ] Toque no dia da grade: "não posso" e "feriado" valem só para a semana.
 - [ ] Corrida encurtada: o formulário traz o campo marcado quando uma rota encurtou, e ela conta como feita.

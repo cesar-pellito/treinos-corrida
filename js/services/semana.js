@@ -8,6 +8,9 @@
 //   - nao: treinos com ✕ já conhecidos
 //   - pendente: mudou algo depois do último recálculo ("Registros atualizados")
 //   - decididos: treinos com ✕ de uma rota aceita, que não voltam a ser oferecidos
+//
+// Ao aceitar uma rota, a semana é fotografada. "Desfazer" volta à foto enquanto os
+// treinos da semana continuarem como a rota deixou.
 
 import * as repo from "../data/repository.js";
 import { DISPONIBILIDADE_PADRAO } from "../data/rotas-config.js";
@@ -19,6 +22,7 @@ import { corridaFeita } from "./dominio.js";
 
 const CHAVE_CONTROLE = "semanaControle";
 const CHAVE_DISPONIBILIDADE = "disponibilidade";
+const CHAVE_DESFAZER = "semanaDesfazer";
 const CHECKIN_VAZIO = { disposicao: 3, dorUpper: false, dorLower: false, fascia: false };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +157,9 @@ async function aplicarOperacao(op, dataRef) {
 export async function aceitarRota(rota, agora = new Date()) {
   const hoje = paraISODate(agora);
   const ops = [...rota.ops].sort((a, b) => ORDEM_DE_APLICAR[a.tipo] - ORDEM_DE_APLICAR[b.tipo]);
+  const faixa = await faixaDaSemana(hoje);
+  const fotoAntes = await repo.fotografarSemana(faixa);
+  const controleAntes = await lerControle(faixa.de);
   try {
     for (const op of ops) await aplicarOperacao(op, hoje);
     const semana = await carregarSemana(hoje);
@@ -162,8 +169,39 @@ export async function aceitarRota(rota, agora = new Date()) {
     const { estado, semana } = await carregarEstado(agora);
     const nao = idsComX(estado);
     await repo.definirConfig(CHAVE_CONTROLE, { inicio: semana.inicio, foraVista: avaliar(estado).fora, nao, pendente: false, decididos: nao });
+    await repo.definirConfig(CHAVE_DESFAZER, {
+      inicio: faixa.de, foto: fotoAntes, controle: controleAntes, mudancas: rota.mudancas,
+      depois: impressaoDaFoto(await repo.fotografarSemana(faixa)),
+    });
   }
   await registrarEscolha(hoje, { tipo: "rota", mudancas: rota.mudancas, custo: rota.custo, fechar: (rota.fechar || []).map((f) => f.id) });
+}
+
+async function faixaDaSemana(hoje) {
+  const inicio = inicioDaSemana(hoje, await primeiroDiaSemana());
+  return { de: inicio, ate: somarDias(inicio, 6) };
+}
+
+/** Muda quando qualquer treino da semana muda (marcar, mover, juntar…). */
+const impressaoDaFoto = (foto) => Object.values(foto).flat().map((r) => `${r.id}@${r.atualizadoEm}`).sort().join("|");
+
+/** A rota que ainda dá para desfazer, ou null se a semana mudou depois de aceitar. */
+export async function rotaParaDesfazer(agora = new Date()) {
+  const faixa = await faixaDaSemana(paraISODate(agora));
+  const guardada = await repo.obterConfig(CHAVE_DESFAZER, null);
+  if (!guardada || guardada.inicio !== faixa.de) return null;
+  return impressaoDaFoto(await repo.fotografarSemana(faixa)) === guardada.depois ? guardada : null;
+}
+
+/** Volta a semana a como estava antes de aceitar a rota. O histórico registra as duas coisas. */
+export async function desfazerRota(agora = new Date()) {
+  const guardada = await rotaParaDesfazer(agora);
+  if (!guardada) throw new Error("A semana mudou depois de aceitar a rota.");
+  const faixa = await faixaDaSemana(paraISODate(agora));
+  await repo.restaurarSemana(guardada.foto, faixa);
+  await repo.definirConfig(CHAVE_CONTROLE, guardada.controle);
+  await repo.definirConfig(CHAVE_DESFAZER, null);
+  await registrarEscolha(paraISODate(agora), { tipo: "desfeita", mudancas: guardada.mudancas, custo: 0 });
 }
 
 /** "Manter como está": nada muda, mas a escolha fica no histórico. */

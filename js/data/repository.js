@@ -669,6 +669,43 @@ export async function listarMerges({ de, ate } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Foto da semana: permite desfazer uma rota aceita
+// ---------------------------------------------------------------------------
+const STORES_DA_FOTO = [
+  [STORES.sessionLogs, "data"], [STORES.scheduleMoves, "data"],
+  [STORES.sessionMerges, "data"], [STORES.plannedWorkouts, "dataPlanejada"],
+];
+
+/** Registros crus da semana, inclusive tombstones, em cada store que uma rota altera. */
+export async function fotografarSemana({ de, ate }) {
+  return comTransacao(STORES_DA_FOTO.map(([s]) => s), "readonly", async (tx) => {
+    const foto = {};
+    for (const [store, indice] of STORES_DA_FOTO) {
+      foto[store] = await req(tx.objectStore(store).index(indice).getAll(globalThis.IDBKeyRange.bound(de, ate)));
+    }
+    return foto;
+  });
+}
+
+/**
+ * Volta a semana à foto, numa transação. O que foi criado depois vira tombstone;
+ * o resto volta ao que era. Carimba atualizadoEm: o backup continua last-write-wins.
+ */
+export async function restaurarSemana(foto, { de, ate }) {
+  return comTransacao(STORES_DA_FOTO.map(([s]) => s), "readwrite", async (tx) => {
+    for (const [store, indice] of STORES_DA_FOTO) {
+      const st = tx.objectStore(store);
+      const naFoto = new Map(foto[store].map((r) => [r.id, r]));
+      const atuais = await req(st.index(indice).getAll(globalThis.IDBKeyRange.bound(de, ate)));
+      for (const atual of atuais) {
+        if (!naFoto.has(atual.id) && !atual.removido) st.put(carimbar({ ...atual, removido: true }, { novo: false }));
+      }
+      for (const original of naFoto.values()) st.put(carimbar(original, { novo: false }));
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Aba Semana (v5): check-in do dia, exceções da semana e histórico por semana.
 // IDs estáveis por dia e por semana: importar um backup não duplica.
 // ---------------------------------------------------------------------------

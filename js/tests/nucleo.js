@@ -1264,6 +1264,69 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.importarBackup(dump)).criados, 0, "reimportar não duplica");
   });
 
+  await test("semana: desfazer a rota volta tudo como estava, enquanto os treinos não mudarem", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(6, 12, 47);
+    await semanaSrv.situacaoSemana(agora);
+    const antes = await repo.fotografarSemana({ de: "2026-11-02", ate: "2026-11-08" });
+    const estado = (foto) => Object.values(foto).flat().filter((r) => !r.removido).map(({ atualizadoEm, ...r }) => JSON.stringify(r)).sort().join("|");
+    eq(await semanaSrv.rotaParaDesfazer(agora), null, "nada a desfazer antes de aceitar");
+
+    // rota com merge e corrida movida
+    let calc = await semanaSrv.recalcular(agora);
+    const comMover = calc.rotas.find((r) => r.ops.some((o) => o.tipo === "juntar") && r.ops.some((o) => o.tipo === "mover"));
+    assert(comMover, "há rota que junta e move");
+    await semanaSrv.aceitarRota(comMover, agora);
+    eq((await repo.listarMerges()).length, 1);
+    assert((await repo.obterPlanned("run-qui")).dataOriginal, "corrida movida");
+    assert(await semanaSrv.rotaParaDesfazer(agora), "agora dá para desfazer");
+    eq((await semanaSrv.rotaParaDesfazer(agora)).mudancas.length, comMover.mudancas.length, "lista o que a rota mudou");
+
+    await semanaSrv.desfazerRota(agora);
+    const depois = await repo.fotografarSemana({ de: "2026-11-02", ate: "2026-11-08" });
+    eq(estado(depois), estado(antes), "registros voltam ao que eram");
+    eq((await repo.listarMerges()).length, 0, "o merge saiu");
+    const sit = await semanaSrv.situacaoSemana(agora);
+    assert(sit.aviso && sit.avaliacao.perdidas.length === 2, "os dois treinos voltam a ficar sem registro");
+    eq(await semanaSrv.rotaParaDesfazer(agora), null, "só desfaz uma vez");
+    eq((await repo.obterHistoricoSemana("2026-11-02")).escolhas.map((e) => e.tipo).join(), "rota,desfeita", "o histórico guarda as duas coisas");
+
+    // depois de desfazer, a mesma rota pode ser aceita de novo
+    calc = await semanaSrv.recalcular(agora);
+    await semanaSrv.aceitarRota(calc.rotas[0], agora);
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false);
+
+    // marcou um treino depois de aceitar: não desfaz mais
+    assert(await semanaSrv.rotaParaDesfazer(agora));
+    await s.marcar(5, "Leve", "2026-11-06", "feito");
+    eq(await semanaSrv.rotaParaDesfazer(agora), null, "a semana mudou");
+    let lancou = false;
+    try { await semanaSrv.desfazerRota(agora); } catch { lancou = true; }
+    assert(lancou, "desfazer é recusado");
+
+    // check-in não trava o desfazer
+    const s2 = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s2);
+    await semanaSrv.aceitarRota((await semanaSrv.recalcular(agora)).rotas[0], agora);
+    await semanaSrv.salvarCheckinDeHoje({ disposicao: 2 }, agora);
+    assert(await semanaSrv.rotaParaDesfazer(agora), "check-in não muda treinos");
+
+    // recuperar um ✕: desfazer devolve o ✕
+    const s3 = await prepararSemanaDeTeste();
+    const quarta = s3.quando(4, 8);
+    await s3.marcar(1, "Upper A", "2026-11-02", "nao_feito");
+    await s3.marcar(1, "Leve", "2026-11-02", "feito");
+    await s3.marcar(2, "Intenso", "2026-11-03", "feito");
+    const oferta = (await semanaSrv.recalcular(quarta)).rotas.find((r) => r.mudancas[0].startsWith("Mover Upper A"));
+    await semanaSrv.aceitarRota(oferta, quarta);
+    await semanaSrv.desfazerRota(quarta);
+    const upper = (await repo.listarSessoes()).find((x) => x.scheduleItemId === s3.item(1, "Upper A").id);
+    eq(upper.status, "nao_feito", "o ✕ voltou");
+    const semanaFinal = await agenda.carregarSemana("2026-11-04");
+    eq(semanaFinal.dias[0].entradas.some((e) => e.item && e.item.rotulo === "Upper A"), true, "o Upper A voltou para segunda");
+  });
+
   await test("semana: dois treinos no mesmo período e horários fora da grade", async () => {
     const s = await prepararSemanaDeTeste();
     await semanaEmDiaAteQuarta(s);
