@@ -27,6 +27,7 @@ import { statusEfetivo, remarcarEmpurrando, progressoSemana } from "../services/
 import * as semanaSrv from "../services/semana.js";
 import { recorrencia } from "../services/discomfort.js";
 import { gerarICS } from "../services/ics.js";
+import { textoZonaFC } from "../services/dominio.js";
 
 export async function rodarTestes(seed, reportar) {
   let ok = 0, fail = 0;
@@ -348,6 +349,16 @@ export async function rodarTestes(seed, reportar) {
     assert(ics.includes("SEQUENCE:2"), "SEQUENCE:2 presente");
     assert(ics.includes("BEGIN:VALARM") && ics.includes("TRIGGER"), "VALARM presente");
     assert(ics.includes("BEGIN:VCALENDAR") && ics.includes("END:VCALENDAR"), "envelope VCALENDAR");
+    assert(ics.includes("Zona FC Z2"), "zona no corpo do evento");
+  });
+
+  await test("zonas: faixa do plano vira zona com bpm da FC máxima", async () => {
+    eq(textoZonaFC("65–75%", 190), "Z2 · 124–143 bpm", "fácil");
+    eq(textoZonaFC("76–83%", 190), "Z3 · 144–158 bpm", "moderado");
+    eq(textoZonaFC("84–90%", 190), "Z4 · 160–171 bpm", "limiar");
+    eq(textoZonaFC("65–75%", null), "Z2 · 124–143 bpm", "sem FC máxima usa 190");
+    eq(textoZonaFC("65–75%", 200), "Z2 · 130–150 bpm", "respeita a FC máxima dos Ajustes");
+    eq(textoZonaFC("70–80%", 190), "70–80%", "faixa fora do plano fica como está");
   });
 
   await test("stats: comparação com treino semelhante anterior", async () => {

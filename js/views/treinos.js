@@ -66,6 +66,7 @@ async function renderSemana(container) {
   const atual = inicioDaSemana(hoje, pds);
   if (!semanaRef) semanaRef = atual;
   const r = await carregarSemana(semanaRef);
+  const fcMax = await repo.obterConfig("fcMaxima");
   if (semanaRef !== atual) await atualizarResultadoSemana(r.inicio);
 
   const mudar = (dias) => { semanaRef = somarDias(semanaRef, dias); recarregar(); };
@@ -89,7 +90,7 @@ async function renderSemana(container) {
     const cab = `${nomeDiaSemana(dia.data)} · ${ddmm(dia.data)}${dia.data === hoje ? " · hoje" : ""}`;
     const vagas = Object.keys(ROTULO_PERIODO).map((periodo) => {
       const linhas = dia.entradas.filter((e) => e.periodo === periodo).map((e) => {
-        const no = linhaEntrada(e, dia.data);
+        const no = linhaEntrada(e, dia.data, { fcMax });
         no.dataset.ordem = String(e.ordem);
         if (podeMover(e)) arrastaveis.set(no, { entrada: e, data: dia.data });
         return no;

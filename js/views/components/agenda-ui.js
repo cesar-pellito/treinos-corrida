@@ -8,7 +8,7 @@ import {
   alternarSessao, marcarSessao, editarSessao, desmarcarSessao,
   alternarCorridaNaoFeita, registrarSessaoAvulsa, voltarAoPrevisto, podeMover,
 } from "../../services/agenda.js";
-import { corridaFeita } from "../../services/dominio.js";
+import { corridaFeita, textoZonaFC } from "../../services/dominio.js";
 import { alternarCombinada, avisoDiaSeguinte } from "../../services/merge.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo, barraProgresso, metaItem, blocoEstrutura } from "./ui.js";
@@ -80,9 +80,9 @@ function linha({ periodo, data, titulo, sub, status, onTitulo, controles, extra,
 // ---------------------------------------------------------------------------
 
 /** Uma entrada de `montarDia` como linha clicável. */
-export function linhaEntrada(entrada, data, { resumoCorrida } = {}) {
+export function linhaEntrada(entrada, data, { resumoCorrida, fcMax } = {}) {
   if (entrada.tipo === "sessao") return linhaSessao(entrada, data);
-  if (entrada.tipo === "corrida") return linhaCorrida(entrada, resumoCorrida, data);
+  if (entrada.tipo === "corrida") return linhaCorrida(entrada, resumoCorrida, data, fcMax);
   if (entrada.tipo === "mesclada") return linhaCombinada(entrada);
   return linhaAvulsa(entrada);
 }
@@ -181,14 +181,14 @@ const textoRpe = (w) => (w.rpeMin === w.rpeMax ? `${w.rpeMin}` : `${w.rpeMin}–
  * Detalhe de um treino do plano de corrida (objetivo, metas, estrutura), oculto
  * até ser aberto. Usado na linha da agenda e no card "Próxima corrida".
  */
-export function detalheCorrida(w, fase) {
+export function detalheCorrida(w, fase, fcMax) {
   const pendente = !corridaFeita(w.status) && w.status !== "nao_realizado";
   return el("div", { class: "agenda-linha__detalhe hidden" }, [
     w.objetivoFisiologico ? el("p", { class: "sub", text: w.objetivoFisiologico }) : null,
     el("div", { class: "metarow" }, [
       metaItem("Duração", `${w.duracaoMin} min`),
       w.rpeMin != null ? metaItem("RPE", textoRpe(w)) : null,
-      w.zonaFC ? metaItem("Zona FC", w.zonaFC) : null,
+      w.zonaFC ? metaItem("Zona FC", textoZonaFC(w.zonaFC, fcMax)) : null,
       fase ? metaItem("Fase", fase.nome) : null,
     ]),
     el("div", { class: "estrutura" }, [
@@ -228,7 +228,7 @@ function sheetCorrida({ planned: w, periodo }, data) {
   ]));
 }
 
-function linhaCorrida({ planned: w, periodo }, resumoCorrida, data) {
+function linhaCorrida({ planned: w, periodo }, resumoCorrida, data, fcMax) {
   const concluido = corridaFeita(w.status);
   const naoFeito = w.status === "nao_realizado";
   const atual = concluido ? "feito" : naoFeito ? "nao_feito" : null;
@@ -240,7 +240,7 @@ function linhaCorrida({ planned: w, periodo }, resumoCorrida, data) {
   const movida = w.status === "reagendado" && w.dataOriginal && w.dataOriginal !== w.dataPlanejada;
   if (movida) partes.unshift(`Movida de ${nomeDiaSemana(w.dataOriginal)} (${ddmm(w.dataOriginal)})`);
 
-  const detalhe = detalheCorrida(w, resumoCorrida && resumoCorrida.fase);
+  const detalhe = detalheCorrida(w, resumoCorrida && resumoCorrida.fase, fcMax);
 
   const abrirRegistro = () => abrirRegistroCorrida(w);
 

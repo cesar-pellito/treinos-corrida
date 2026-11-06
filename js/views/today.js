@@ -23,12 +23,12 @@ function dataExtensa(iso) {
   return `${dia.charAt(0).toUpperCase()}${dia.slice(1)}, ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function cardAgenda(entradas, data, resumoCorrida, semana, mantidos) {
+function cardAgenda(entradas, data, resumoCorrida, semana, mantidos, fcMax) {
   const filhos = [el("p", { class: "eyebrow", text: "Agenda de hoje" })];
   if (!entradas.length) {
     filhos.push(el("p", { class: "sub", text: "Nada previsto para hoje." }));
   } else {
-    filhos.push(el("div", { class: "agenda-lista" }, entradas.map((e) => linhaEntrada(e, data, { resumoCorrida }))));
+    filhos.push(el("div", { class: "agenda-lista" }, entradas.map((e) => linhaEntrada(e, data, { resumoCorrida, fcMax }))));
   }
   // musculação atrasada na semana: oferece juntar duas pendentes numa só. Não cobra o que foi mantido.
   const atrasadas = atrasadasDaSemana(semana, data).filter((p) => !mantidos.has(idDaEntrada(p.entrada)));
@@ -46,13 +46,13 @@ function cardAgenda(entradas, data, resumoCorrida, semana, mantidos) {
 }
 
 /** Toque abre/fecha o detalhe do treino (objetivo, metas e estrutura). */
-function cardProximaCorrida(resumo) {
+function cardProximaCorrida(resumo, fcMax) {
   const w = resumo.proximo;
   if (!w) return null;
   const dias = resumo.diasParaProximo;
   const quando = dias === 1 ? "amanhã" : `em ${dias} dias`;
   const fase = resumo.fase && resumo.fase.id === w.phaseId ? resumo.fase : null;
-  const detalhe = detalheCorrida(w, fase);
+  const detalhe = detalheCorrida(w, fase, fcMax);
   const cabeca = el("button", {
     type: "button", class: "mini mini--expansivel", "aria-expanded": "false",
     onClick: () => {
@@ -90,7 +90,7 @@ function avisoLacuna(ontem) {
 export async function renderHoje(container) {
   const data = hojeISO();
   const plan = await repo.planoAtivo();
-  const [entradas, semana, resumoCorrida, nutricao, lacuna, aviso, mantidos] = await Promise.all([
+  const [entradas, semana, resumoCorrida, nutricao, lacuna, aviso, mantidos, fcMax] = await Promise.all([
     carregarDia(data),
     carregarSemana(data),
     plan ? resumoHoje(plan, data) : Promise.resolve(null),
@@ -98,6 +98,7 @@ export async function renderHoje(container) {
     lacunaOntem(data),
     avisoSemana(),
     semRegistroMantido(),
+    repo.obterConfig("fcMaxima"),
   ]);
 
   container.appendChild(tituloVista("Hoje"));
@@ -105,14 +106,14 @@ export async function renderHoje(container) {
   if (aviso) container.appendChild(aviso);
   if (lacuna) container.appendChild(avisoLacuna(lacuna));
 
-  container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana, mantidos));
+  container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana, mantidos, fcMax));
   container.appendChild(cardProteina(nutricao));
   container.appendChild(cardRefeicoesHoje(nutricao));
   container.appendChild(cardResumoSemana(semana, { titulo: "Esta semana" }));
 
   const temCorridaHoje = entradas.some((e) => e.tipo === "corrida");
   if (resumoCorrida && !temCorridaHoje) {
-    const prox = cardProximaCorrida(resumoCorrida);
+    const prox = cardProximaCorrida(resumoCorrida, fcMax);
     if (prox) container.appendChild(prox);
   }
 

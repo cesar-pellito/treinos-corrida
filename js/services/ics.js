@@ -8,6 +8,7 @@
 // - VALARM às {horarioLembrete} do dia anterior (respeitado pelo Apple Calendar).
 
 import { deISODate, somarDias } from "./dates.js";
+import { textoZonaFC } from "./dominio.js";
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -44,11 +45,11 @@ function addMinutosHHMM(hhmm, minutos) {
   return `${pad(hh)}:${pad(mm)}`;
 }
 
-function corpoEvento(w) {
+function corpoEvento(w, fcMax) {
   const linhas = [
     w.objetivoFisiologico,
     "",
-    `Duração: ${w.duracaoMin} min · RPE ${w.rpeMin}–${w.rpeMax}${w.zonaFC ? " · Zona FC " + w.zonaFC : ""}`,
+    `Duração: ${w.duracaoMin} min · RPE ${w.rpeMin}–${w.rpeMax}${w.zonaFC ? " · Zona FC " + textoZonaFC(w.zonaFC, fcMax) : ""}`,
     `Aquecimento: ${w.aquecimento}`,
     `Principal: ${w.partePrincipal}`,
     `Desaquecimento: ${w.desaquecimento}`,
@@ -58,10 +59,10 @@ function corpoEvento(w) {
 
 /**
  * @param {Array} planned  treinos planejados (idealmente futuros/reagendados)
- * @param {{horarioTreino?:string, horarioLembrete?:string, agora?:string}} opts
+ * @param {{horarioTreino?:string, horarioLembrete?:string, agora?:string, fcMax?:number}} opts
  * @returns {string} conteúdo .ics
  */
-export function gerarICS(planned, { horarioTreino = "06:30", horarioLembrete = "20:00", agora } = {}) {
+export function gerarICS(planned, { horarioTreino = "06:30", horarioLembrete = "20:00", agora, fcMax } = {}) {
   const dtstamp = (agora || new Date().toISOString()).replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const out = [
     "BEGIN:VCALENDAR",
@@ -86,7 +87,7 @@ export function gerarICS(planned, { horarioTreino = "06:30", horarioLembrete = "
     out.push(`DTSTART:${inicio}`);
     out.push(`DTEND:${fim}`);
     out.push(dobrar(`SUMMARY:${esc(`${w.titulo} — Sem ${w.semana}`)}`));
-    out.push(dobrar(`DESCRIPTION:${esc(corpoEvento(w))}`));
+    out.push(dobrar(`DESCRIPTION:${esc(corpoEvento(w, fcMax))}`));
     out.push("BEGIN:VALARM");
     out.push("ACTION:DISPLAY");
     out.push(dobrar(`DESCRIPTION:${esc(w.titulo)}`));

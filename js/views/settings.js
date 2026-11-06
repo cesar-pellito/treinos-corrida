@@ -7,7 +7,7 @@ import { nomeDiaSemana, deISODate, hoje as hojeISO } from "../services/dates.js"
 import { gerarICS } from "../services/ics.js";
 import { exportarBackup, importarBackupTexto, entregarArquivo, estadoBackup } from "../services/backup.js";
 import { aplicarTema } from "../services/theme.js";
-import { calcularZonasFC, corridaFeita } from "../services/dominio.js";
+import { calcularZonasFC, corridaFeita, FC_MAXIMA_PADRAO } from "../services/dominio.js";
 import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio, abrirSheet } from "./components/ui.js";
 
 const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -53,7 +53,7 @@ export async function renderAjustes(container) {
   // ---- Preferências ----
   const inLembrete = el("input", { type: "time", id: "s-lembrete", value: cfg.horarioLembrete || "20:00" });
   const inTreino = el("input", { type: "time", id: "s-treino", value: cfg.horarioTreino || "06:30" });
-  const inFcMax = el("input", { type: "number", id: "s-fcmax", inputmode: "numeric", placeholder: "ex.: 190", value: cfg.fcMaxima ?? 190 });
+  const inFcMax = el("input", { type: "number", id: "s-fcmax", inputmode: "numeric", placeholder: "ex.: 190", value: cfg.fcMaxima ?? FC_MAXIMA_PADRAO });
   const tema = seletorBotoes(
     [{ valor: "auto", rotulo: "Automático" }, { valor: "claro", rotulo: "Claro" }, { valor: "escuro", rotulo: "Escuro" }],
     { valorInicial: cfg.temaEscuro || "auto", onChange: (v) => { aplicarTema(v); repo.definirConfig("temaEscuro", v); } }
@@ -80,14 +80,14 @@ export async function renderAjustes(container) {
   // ---- Zonas de FC (calculadas da FC máxima, ao vivo) ----
   const zonasBox = el("div", {});
   function renderZonas() {
-    const fcMax = Number(inFcMax.value) || 190;
+    const fcMax = Number(inFcMax.value) || FC_MAXIMA_PADRAO;
     zonasBox.replaceChildren(
       el("p", { class: "eyebrow", text: `Zonas de FC · FC máx ${fcMax}` }),
-      el("p", { class: "sub", text: "O plano prioriza RPE; use a FC como conferência. O grosso do plano é a zona Fácil." }),
+      el("p", { class: "sub", text: "O plano prioriza RPE; use a FC como conferência. O grosso do plano é a Z2." }),
       ...calcularZonasFC(fcMax).map((z) =>
-        el("div", { class: "linha", style: { borderBottom: "1px solid var(--border)" } }, [
-          el("span", {}, [el("span", { class: "strong", text: z.nome }), document.createTextNode(` · RPE ${z.rpe}`)]),
-          el("span", { class: "muted", text: z.aberta ? `${z.bpmMin}+ bpm` : `${z.bpmMin}–${z.bpmMax} bpm` }),
+        el("div", { class: "row-between", style: { borderBottom: "1px solid var(--border)", gap: "12px", padding: "6px 0" } }, [
+          el("span", {}, [el("span", { class: "strong", text: `${z.codigo} ${z.nome}` }), document.createTextNode(` · RPE ${z.rpe}`)]),
+          el("span", { class: "muted", style: { whiteSpace: "nowrap" }, text: z.bpm }),
         ])
       )
     );
@@ -107,7 +107,7 @@ export async function renderAjustes(container) {
             const todos = await repo.listarPlanned({ planId: plan.id });
             const futuros = todos.filter((w) => w.dataPlanejada >= hojeISO() && !corridaFeita(w.status) && w.status !== "nao_realizado");
             if (!futuros.length) { toast("Nenhum treino futuro para exportar."); return; }
-            const ics = gerarICS(futuros, { horarioTreino: cfg.horarioTreino || "06:30", horarioLembrete: cfg.horarioLembrete || "20:00" });
+            const ics = gerarICS(futuros, { horarioTreino: cfg.horarioTreino || "06:30", horarioLembrete: cfg.horarioLembrete || "20:00", fcMax: cfg.fcMaxima });
             const metodo = await entregarArquivo(`plano-corrida-${hojeISO()}.ics`, ics, "text/calendar");
             if (metodo === "download" || metodo === "share") toast("Calendário exportado.");
           },

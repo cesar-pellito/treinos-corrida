@@ -4,7 +4,7 @@
 import * as repo from "../data/repository.js";
 import { irPara, voltar } from "./router.js";
 import { formatarDuracao, formatarDistanciaKm, formatarPace } from "../services/pace.js";
-import { rotuloSensacao, rotuloRegiao } from "../services/dominio.js";
+import { rotuloSensacao, rotuloRegiao, textoZonaFC } from "../services/dominio.js";
 import { progressoSemana } from "../services/schedule.js";
 import { comparacaoSemelhante } from "../services/stats.js";
 import { nomeDiaSemana, deISODate } from "../services/dates.js";
@@ -31,6 +31,7 @@ export async function renderDetalhe(container, { id }) {
   if (!c) throw new Error("Treino não encontrado.");
   const planned = c.plannedWorkoutId ? await repo.obterPlanned(c.plannedWorkoutId) : null;
   const desconfortos = await repo.listarDesconfortosPorTreino(id);
+  const fcMax = await repo.obterConfig("fcMaxima");
 
   container.appendChild(cabecalhoVoltar("Treino", voltar));
 
@@ -49,7 +50,7 @@ export async function renderDetalhe(container, { id }) {
       el("h4", { text: "Planejado" }),
       linhaComp("Duração", `${planned.duracaoMin} min`),
       linhaComp("RPE", `${planned.rpeMin}–${planned.rpeMax}`),
-      linhaComp("Zona FC", planned.zonaFC || "—"),
+      linhaComp("Zona FC", planned.zonaFC ? textoZonaFC(planned.zonaFC, fcMax) : "—"),
     ]);
     const colReal = el("div", { class: "col" }, [
       el("h4", { text: "Realizado" }),

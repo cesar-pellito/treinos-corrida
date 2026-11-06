@@ -26,7 +26,6 @@ function sheetAlerta(alerta) {
   };
   const fechar = abrirSheet("Talvez essa não seja a melhor combinação", el("div", { class: "stack" }, [
     el("ul", {}, alerta.motivos.map((m) => el("li", { text: m }))),
-    el("p", { class: "sub", text: "A escolha é sua: o treino já está onde você colocou." }),
     el("div", { class: "lista-acoes" }, [
       botao("Manter minha escolha", { variante: "primary", bloco: true, onClick: decidir(manterMudanca, "Escolha mantida.") }),
       botao("Desfazer", { variante: "ghost", bloco: true, onClick: decidir(desfazerMudanca, "Treino de volta ao lugar.") }),
