@@ -1,9 +1,12 @@
 // router.js — navegação por hash com suporte a parâmetros.
 //   #/hoje                 -> aba
 //   #/treinos/<segmento>   -> aba Treinos (semana | corrida | evolucao | historico)
+//   #/semana               -> aba Semana (grade, check-in e rotas)
+//   #/horarios             -> editor dos horários em que dá para treinar
 //   #/nutricao/<segmento>  -> aba Nutrição (refeicoes | semana | orientacoes)
 //   #/nutricao/refeicoes/<AAAA-MM-DD> -> Refeições de um dia passado (registro retroativo)
 //   #/registrar/<planId>   -> formulário (registro de um treino planejado)
+//   #/registrar/<planId>/<rota> -> idem, voltando para <rota> ao salvar
 //   #/avulso               -> formulário (treino fora do plano)
 //   #/editar/<compId>      -> formulário (edição de treino realizado)
 //   #/detalhe/<compId>     -> planejado × realizado
@@ -23,17 +26,20 @@ import { renderFormulario } from "./workout-form.js";
 import { renderDetalhe } from "./workout-detail.js";
 import { renderEditorAgenda } from "./agenda-editor.js";
 import { renderEditorMetas } from "./metas-editor.js";
+import { renderSemana } from "./semana.js";
+import { renderEditorHorarios } from "./horarios-editor.js";
 import { el, limpar } from "./components/ui.js";
 
-const ABAS = { hoje: renderHoje, treinos: renderTreinos, nutricao: renderNutricao, ajustes: renderAjustes };
+const ABAS = { hoje: renderHoje, treinos: renderTreinos, semana: renderSemana, nutricao: renderNutricao, ajustes: renderAjustes };
 const ALIASES = { calendario: ["treinos", "corrida"], evolucao: ["treinos", "evolucao"], historico: ["treinos", "historico"] };
 const CHEIAS = {
-  registrar: (c, p) => renderFormulario(c, { modo: "registro", id: p }),
+  registrar: (c, p, p2) => renderFormulario(c, { modo: "registro", id: p, aoSalvarIrPara: p2 }),
   avulso: (c) => renderFormulario(c, { modo: "avulso" }),
   editar: (c, p) => renderFormulario(c, { modo: "edicao", id: p }),
   detalhe: (c, p) => renderDetalhe(c, { id: p }),
   agenda: (c) => renderEditorAgenda(c),
   metas: (c) => renderEditorMetas(c),
+  horarios: (c) => renderEditorHorarios(c),
   ajuda: (c) => renderAjuda(c),
 };
 

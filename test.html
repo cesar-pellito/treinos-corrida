@@ -26,6 +26,7 @@
 
   <script type="module">
     import { rodarTestes } from "./js/tests/nucleo.js";
+    import { rodarTestesMotor } from "./js/tests/motor-rotas.js";
 
     const lista = document.getElementById("lista");
     const resumo = document.getElementById("resumo");
@@ -47,7 +48,9 @@
       try {
         const resp = await fetch("./data/plano-seed.json");
         const seed = await resp.json();
-        const res = await rodarTestes(seed, reportar);
+        const motor = rodarTestesMotor(reportar);
+        const nucleo = await rodarTestes(seed, reportar);
+        const res = { total: motor.total + nucleo.total, ok: motor.ok + nucleo.ok, fail: motor.fail + nucleo.fail };
         resumo.textContent = `Total: ${res.total} · OK: ${res.ok} · Falhas: ${res.fail}`;
         resumo.style.color = res.fail ? "#cf222e" : "#1a7f37";
       } catch (e) {

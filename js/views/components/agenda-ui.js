@@ -4,16 +4,17 @@
 import * as repo from "../../data/repository.js";
 import { irPara, recarregar } from "../router.js";
 import {
-  ROTULO_TIPO, ROTULO_PERIODO, ROTULO_STATUS, ROTULOS_SUGERIDOS,
+  ROTULO_TIPO, ROTULO_PERIODO, ROTULO_STATUS, ROTULOS_SUGERIDOS, rotuloPeriodoNoDia,
   alternarSessao, marcarSessao, editarSessao, desmarcarSessao,
   alternarCorridaNaoFeita, registrarSessaoAvulsa, voltarAoPrevisto, podeMover,
 } from "../../services/agenda.js";
+import { corridaFeita } from "../../services/dominio.js";
 import { alternarCombinada, avisoDiaSeguinte } from "../../services/merge.js";
 import { hoje as hojeISO, nomeDiaSemana, deISODate } from "../../services/dates.js";
 import { el, botao, abrirSheet, seletorBotoes, segmentos, toast, campo, barraProgresso, metaItem, blocoEstrutura } from "./ui.js";
 import { sheetCombinada, sheetMover } from "./merge-ui.js";
 
-const ICONE = { feito: "✓", nao_feito: "✕", pulado: "↷" };
+const ICONE = { feito: "✓", nao_feito: "✕" };
 const NOMES_DIA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
 const naDia = (d) => (d === "sábado" || d === "domingo" ? "no " : "na ") + d;
 const ddmm = (iso) => {
@@ -28,10 +29,10 @@ export async function agir(fn) {
   await recarregar();
 }
 
-/** Grupo de botões de status. `acoes` = {feito, nao_feito, pulado} → handler; ausentes não aparecem. */
-function botoesStatus(atual, acoes) {
+/** Grupo de botões de status. `acoes` = {feito, nao_feito} → handler; ausentes não aparecem. */
+export function botoesStatus(atual, acoes) {
   const wrap = el("div", { class: "check3", role: "group", "aria-label": "Marcar" });
-  for (const st of ["feito", "nao_feito", "pulado"]) {
+  for (const st of ["feito", "nao_feito"]) {
     if (!acoes[st]) continue;
     wrap.appendChild(el("button", {
       type: "button", class: `check3__op check3__op--${st}`, text: ICONE[st],
@@ -62,9 +63,9 @@ function textoMovido(mov, item, data) {
   return null;
 }
 
-function linha({ periodo, titulo, sub, status, onTitulo, controles, extra, movido }) {
+function linha({ periodo, data, titulo, sub, status, onTitulo, controles, extra, movido }) {
   const esq = el("button", { type: "button", class: "agenda-linha__info", onClick: onTitulo }, [
-    el("span", { class: "agenda-linha__periodo", text: ROTULO_PERIODO[periodo] || "" }),
+    el("span", { class: "agenda-linha__periodo", text: rotuloPeriodoNoDia(periodo, data) }),
     el("span", { class: "agenda-linha__titulo", text: titulo }),
     sub ? el("span", { class: "agenda-linha__sub", text: sub }) : null,
   ]);
@@ -81,9 +82,19 @@ function linha({ periodo, titulo, sub, status, onTitulo, controles, extra, movid
 /** Uma entrada de `montarDia` como linha clicável. */
 export function linhaEntrada(entrada, data, { resumoCorrida } = {}) {
   if (entrada.tipo === "sessao") return linhaSessao(entrada, data);
-  if (entrada.tipo === "corrida") return linhaCorrida(entrada, resumoCorrida);
+  if (entrada.tipo === "corrida") return linhaCorrida(entrada, resumoCorrida, data);
   if (entrada.tipo === "mesclada") return linhaCombinada(entrada);
   return linhaAvulsa(entrada);
+}
+
+/** Abre a folha de uma entrada da semana (a mesma da tela Hoje e de Treinos). */
+export function abrirFolhaEntrada(entrada, data) {
+  if (entrada.tipo === "sessao") {
+    if (entrada.log && entrada.log.status === "mesclada") { if (entrada.merge) sheetCombinada(entrada.merge); return; }
+    sheetSessao({ item: entrada.item, data, log: entrada.log, entrada });
+  } else if (entrada.tipo === "corrida") sheetCorrida(entrada, data);
+  else if (entrada.tipo === "mesclada") sheetCombinada(entrada.merge);
+  else sheetSessao({ log: entrada.log, data: entrada.log.data, avulsa: true });
 }
 
 /** Origem de um merge: aponta para a combinada, sem check próprio. */
@@ -94,6 +105,7 @@ function linhaOrigemMesclada(entrada) {
     : "Mesclada";
   return linha({
     periodo,
+    data: entrada.log.data,
     titulo: tituloSessao(item.tipo, item.rotulo),
     sub,
     status: merge && merge.status === "feito" ? "mesclada-coberta" : "mesclada",
@@ -116,11 +128,12 @@ function linhaCombinada({ merge, periodo }) {
   }
   const no = linha({
     periodo,
+    data: merge.data,
     titulo: `Musculação — ${merge.rotulo}`,
     sub: partes.join(" · "),
     status: merge.status,
     onTitulo: () => sheetCombinada(merge),
-    controles: botoesStatus(merge.status, { feito: acao("feito"), nao_feito: acao("nao_feito"), pulado: acao("pulado") }),
+    controles: botoesStatus(merge.status, { feito: acao("feito"), nao_feito: acao("nao_feito") }),
   });
   no.classList.add("agenda-linha--combinada");
   no.querySelector(".agenda-linha__info").appendChild(avisoDia);
@@ -139,12 +152,13 @@ function linhaSessao(entrada, data) {
   ].filter(Boolean).join(" · ");
   return linha({
     periodo,
+    data,
     titulo: tituloSessao(item.tipo, item.rotulo) + (item.opcional ? " (opcional)" : ""),
     sub: sub || null,
     status: atual || (remanejado ? "remanejado" : null),
     movido: !!movido,
     onTitulo: () => sheetSessao({ item, data, log, entrada }),
-    controles: botoesStatus(atual, { feito: acao("feito"), nao_feito: acao("nao_feito"), pulado: acao("pulado") }),
+    controles: botoesStatus(atual, { feito: acao("feito"), nao_feito: acao("nao_feito") }),
   });
 }
 
@@ -152,6 +166,7 @@ function linhaAvulsa({ log, periodo, item, credita }) {
   const origem = credita && item ? `Vale pelo treino de ${NOMES_DIA[item.diaSemana]}` : "Fora da agenda";
   return linha({
     periodo,
+    data: log.data,
     titulo: tituloSessao(log.tipo, log.rotulo),
     sub: origem + " · " + detalhesLog(log),
     status: log.status,
@@ -167,7 +182,7 @@ const textoRpe = (w) => (w.rpeMin === w.rpeMax ? `${w.rpeMin}` : `${w.rpeMin}–
  * até ser aberto. Usado na linha da agenda e no card "Próxima corrida".
  */
 export function detalheCorrida(w, fase) {
-  const pendente = w.status !== "concluido" && w.status !== "nao_realizado";
+  const pendente = !corridaFeita(w.status) && w.status !== "nao_realizado";
   return el("div", { class: "agenda-linha__detalhe hidden" }, [
     w.objetivoFisiologico ? el("p", { class: "sub", text: w.objetivoFisiologico }) : null,
     el("div", { class: "metarow" }, [
@@ -188,31 +203,50 @@ export function detalheCorrida(w, fase) {
   ]);
 }
 
-function linhaCorrida({ planned: w, periodo }, resumoCorrida) {
-  const concluido = w.status === "concluido";
+/** Marca a corrida como feita: o ✓ sempre leva ao formulário. `aoVoltar` é a rota depois de salvar. */
+export async function abrirRegistroCorrida(w, aoVoltar = null) {
+  if (corridaFeita(w.status)) {
+    const comp = await repo.completedPorPlanned(w.id);
+    if (comp) irPara("detalhe/" + comp.id);
+  } else {
+    irPara("registrar/" + w.id + (aoVoltar ? "/" + aoVoltar : ""));
+  }
+}
+
+function sheetCorrida({ planned: w, periodo }, data) {
+  const feita = corridaFeita(w.status);
+  const entrada = { tipo: "corrida", planned: w, periodo };
+  const fechar = abrirSheet(`Corrida — ${w.titulo}`, el("div", { class: "stack" }, [
+    w.encurtada && !feita ? el("p", { class: "sub", text: "Encurtada por uma rota aceita." }) : null,
+    el("div", { class: "lista-acoes" }, [
+      botao(feita ? "Ver treino" : "Registrar corrida", { variante: "primary", bloco: true, onClick: () => { fechar(); abrirRegistroCorrida(w, "semana"); } }),
+      !feita ? botao(w.status === "nao_realizado" ? "Tirar “não feito”" : "Marcar como não feito", {
+        bloco: true, onClick: async () => { fechar(); await agir(() => alternarCorridaNaoFeita(w)); },
+      }) : null,
+      podeMover(entrada) ? botao("Mover para…", { variante: "ghost", bloco: true, onClick: () => sheetMover(entrada, data) }) : null,
+    ]),
+  ]));
+}
+
+function linhaCorrida({ planned: w, periodo }, resumoCorrida, data) {
+  const concluido = corridaFeita(w.status);
   const naoFeito = w.status === "nao_realizado";
   const atual = concluido ? "feito" : naoFeito ? "nao_feito" : null;
-  const partes = [`${w.duracaoMin} min`];
+  const partes = [w.encurtada && !concluido ? "Encurtada" : `${w.duracaoMin} min`];
   if (w.rpeMin != null) partes.push(`RPE ${textoRpe(w)}`);
   partes.push(`Semana ${w.semana}`);
-  if (concluido) partes.unshift("Feito");
+  if (concluido) partes.unshift(w.status === "encurtado" ? "Encurtado" : "Feito");
   if (naoFeito) partes.unshift("Não realizado");
   const movida = w.status === "reagendado" && w.dataOriginal && w.dataOriginal !== w.dataPlanejada;
   if (movida) partes.unshift(`Movida de ${nomeDiaSemana(w.dataOriginal)} (${ddmm(w.dataOriginal)})`);
 
   const detalhe = detalheCorrida(w, resumoCorrida && resumoCorrida.fase);
 
-  const abrirRegistro = async () => {
-    if (concluido) {
-      const comp = await repo.completedPorPlanned(w.id);
-      if (comp) irPara("detalhe/" + comp.id);
-    } else {
-      irPara("registrar/" + w.id);
-    }
-  };
+  const abrirRegistro = () => abrirRegistroCorrida(w);
 
   return linha({
     periodo,
+    data: data || w.dataPlanejada,
     titulo: `Corrida — ${w.titulo}`,
     sub: partes.join(" · "),
     status: atual,
@@ -244,7 +278,7 @@ export const lerMinutos = (input) => (input.value ? Math.max(0, Math.round(Numbe
 function sheetSessao({ item, data, log, avulsa, entrada }) {
   const titulo = item ? tituloSessao(item.tipo, item.rotulo) : tituloSessao(log.tipo, log.rotulo);
   const status = avulsa ? null : segmentos(
-    [{ valor: "feito", rotulo: "Feito" }, { valor: "nao_feito", rotulo: "Não feito" }, { valor: "pulado", rotulo: "Pulado" }],
+    [{ valor: "feito", rotulo: "Feito" }, { valor: "nao_feito", rotulo: "Não feito" }],
     { valorInicial: log ? log.status : "feito" }
   );
   const min = inputMinutos(log && log.duracaoMin);
@@ -335,7 +369,6 @@ export function sheetSessaoAvulsa(dataInicial = hojeISO()) {
 export function cardResumoSemana(r, { titulo = "Semana" } = {}) {
   const lowerOk = r.lower >= r.metaLower;
   const detalhes = [];
-  if (r.pulados) detalhes.push(`${r.pulados} pulado${r.pulados > 1 ? "s" : ""}`);
   if (r.naoFeitos) detalhes.push(`${r.naoFeitos} não feito${r.naoFeitos > 1 ? "s" : ""}`);
   if (r.extras) detalhes.push(`+${r.extras} extra${r.extras > 1 ? "s" : ""}`);
   return el("section", { class: "card" }, [

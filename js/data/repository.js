@@ -15,6 +15,7 @@
 
 import { STORES, TODOS_STORES, comTransacao, req, abrirDB } from "./db.js";
 import { agoraISO, hoje as hojeISO } from "../services/dates.js";
+import { corridaFeita } from "../services/dominio.js";
 
 // Aviso de abertura bloqueada (upgrade de versão com outra aba aberta) — o
 // bootstrap registra quem mostra a mensagem; ninguém acima importa db.js.
@@ -178,7 +179,7 @@ export async function reposicionarPlanned(id, { data, periodo, ordemDia }) {
   return comTransacao(STORES.plannedWorkouts, "readwrite", async (tx) => {
     const atual = await getReq(tx, STORES.plannedWorkouts, id);
     if (!atual) throw new Error(`Treino planejado não encontrado: ${id}`);
-    if (atual.status === "concluido") throw new Error("Corrida já registrada não muda de dia.");
+    if (corridaFeita(atual.status)) throw new Error("Corrida já registrada não muda de dia.");
     const merged = { ...atual, periodo, ordemDia };
     if (data && data !== atual.dataPlanejada) {
       if (!merged.dataOriginal) merged.dataOriginal = atual.dataPlanejada;
@@ -240,6 +241,7 @@ export async function registrarTreino(dados) {
         fcMaxima: dados.fcMaxima ?? null,
         sensacao: dados.sensacao ?? null,
         observacoes: dados.observacoes ?? null,
+        ...(dados.encurtada ? { encurtada: true } : {}),
       },
       { novo: true }
     );
@@ -248,11 +250,32 @@ export async function registrarTreino(dados) {
     if (plannedWorkoutId != null) {
       const planned = await getReq(tx, STORES.plannedWorkouts, plannedWorkoutId);
       if (!planned) throw new Error(`Treino planejado vinculado não existe: ${plannedWorkoutId}`);
-      // ALTERA SOMENTE o status. Nenhum outro campo do planejado é tocado.
-      const plannedAtualizado = carimbar({ ...planned, status: "concluido" }, { novo: false });
+      // ALTERA SOMENTE o status (e, se encurtada, os minutos reais).
+      const plannedAtualizado = carimbar(
+        { ...planned, ...camposDeConclusao(!!dados.encurtada, dados.duracaoSeg) },
+        { novo: false }
+      );
       tx.objectStore(STORES.plannedWorkouts).put(plannedAtualizado);
     }
     return completed;
+  });
+}
+
+/** Corrida encurtada conta como feita, com os minutos informados no registro. */
+function camposDeConclusao(encurtada, duracaoSeg) {
+  if (!encurtada) return { status: "concluido" };
+  return { status: "encurtado", duracaoRealMin: duracaoSeg != null ? Math.round(duracaoSeg / 60) : 0 };
+}
+
+/** Corrige no formulário de edição se a corrida registrada foi encurtada ou não. */
+export async function definirCorridaEncurtada(plannedWorkoutId, encurtada, duracaoSeg) {
+  return comTransacao(STORES.plannedWorkouts, "readwrite", async (tx) => {
+    const atual = await getReq(tx, STORES.plannedWorkouts, plannedWorkoutId);
+    if (!atual) throw new Error(`Treino planejado não encontrado: ${plannedWorkoutId}`);
+    const { duracaoRealMin: _antigo, ...semMinutos } = atual;
+    const carimbado = carimbar({ ...semMinutos, ...camposDeConclusao(encurtada, duracaoSeg) }, { novo: false });
+    tx.objectStore(STORES.plannedWorkouts).put(carimbado);
+    return carimbado;
   });
 }
 
@@ -405,8 +428,12 @@ export async function removerItemAgenda(id) {
 // ---------------------------------------------------------------------------
 // "mesclada" (v4): a ocorrência foi juntada a outra numa sessão combinada
 // (sessionMerges); o registro guarda `mergeId`. Só juntarSessoes grava este status.
-export const STATUS_SESSAO = ["feito", "nao_feito", "pulado", "mesclada"];
+export const STATUS_SESSAO = ["feito", "nao_feito", "mesclada"];
 const ERRO_MESCLADA = "Esta sessão está numa sessão combinada. Desfaça o merge para mudar.";
+
+// O status "pulado" saiu do app: só existe feito ou não feito. Registros antigos
+// (e backups) continuam como estão no banco e são lidos como "não feito".
+const lerStatus = (r) => (r.status === "pulado" ? { ...r, status: "nao_feito" } : r);
 
 /**
  * Marca uma sessão. UM registro por (data, scheduleItemId): se já existe —
@@ -467,7 +494,7 @@ export async function obterSessao(id) {
 /** Sessões ativas, por data crescente. `de`/`ate` inclusivos (ISO). */
 export async function listarSessoes({ de, ate } = {}) {
   const todas = de && ate ? await listarPorData(STORES.sessionLogs, de, ate) : await listar(STORES.sessionLogs);
-  return todas.filter(ativo).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  return todas.filter(ativo).map(lerStatus).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
 }
 /** Desmarcar: tombstone (o próximo toque no mesmo item/dia reativa o registro). */
 export async function removerSessao(id) {
@@ -489,7 +516,7 @@ export async function removerSessao(id) {
  * O registro de sessão da ocorrência acompanha, na mesma transação:
  *   - mesma data: só muda o período;
  *   - outra data e "feito": o registro vai junto (o treino foi feito no outro dia);
- *   - outra data e "não feito"/"pulado": o registro sai (tombstone): o treino
+ *   - outra data e "não feito": o registro sai (tombstone): o treino
  *     foi remarcado e volta a ficar pendente.
  */
 export async function moverOcorrencia({ scheduleItemId, dataOrigem, dataAtual, data, periodo, ordem = 0, voltar = false }) {
@@ -544,7 +571,7 @@ export async function listarMovimentos({ de, ate } = {}) {
 // que "desfazer" restaura. Regras de semana e de tipo ficam em services/merge.js;
 // aqui ficam as que protegem os dados.
 // ---------------------------------------------------------------------------
-export const STATUS_COMBINADA = [null, "feito", "nao_feito", "pulado"];
+export const STATUS_COMBINADA = [null, "feito", "nao_feito"];
 
 /**
  * Cria a sessão combinada e marca as origens, numa transação.
@@ -638,7 +665,52 @@ export async function obterMerge(id) {
 /** Merges ativos com a combinada entre `de` e `ate` (inclusivos). */
 export async function listarMerges({ de, ate } = {}) {
   const todos = de && ate ? await listarPorData(STORES.sessionMerges, de, ate) : await listar(STORES.sessionMerges);
+  return todos.filter(ativo).map(lerStatus);
+}
+
+// ---------------------------------------------------------------------------
+// Aba Semana (v5): check-in do dia, exceções da semana e histórico por semana.
+// IDs estáveis por dia e por semana: importar um backup não duplica.
+// ---------------------------------------------------------------------------
+
+/** Um check-in por dia: salvar de novo edita. Fica guardado no histórico. */
+export async function salvarCheckin(dados) {
+  if (!dados.data) throw new Error("Check-in sem data.");
+  const id = `checkin:${dados.data}`;
+  const atual = await obter(STORES.dailyCheckins, id);
+  return put(STORES.dailyCheckins, { ...(atual || {}), ...dados, id, removido: false }, { novo: !atual });
+}
+export async function obterCheckin(data) {
+  const r = await obter(STORES.dailyCheckins, `checkin:${data}`);
+  return ativo(r) ? r : null;
+}
+export async function listarCheckins({ de, ate } = {}) {
+  const todos = de && ate ? await listarPorData(STORES.dailyCheckins, de, ate) : await listar(STORES.dailyCheckins);
   return todos.filter(ativo);
+}
+
+/** Exceção de um dia: `bloqueio` ("manha" | "noite" | "dia" | null) e `feriado`. */
+export async function salvarExcecao({ data, bloqueio = null, feriado = false }) {
+  if (!data) throw new Error("Exceção sem data.");
+  const id = `excecao:${data}`;
+  const atual = await obter(STORES.weekExceptions, id);
+  return put(STORES.weekExceptions, { id, data, bloqueio, feriado, removido: !bloqueio && !feriado }, { novo: !atual });
+}
+export async function listarExcecoes({ de, ate } = {}) {
+  const todas = de && ate ? await listarPorData(STORES.weekExceptions, de, ate) : await listar(STORES.weekExceptions);
+  return todas.filter(ativo);
+}
+
+export function obterHistoricoSemana(inicio) {
+  return obter(STORES.weekHistory, `semana:${inicio}`);
+}
+export function listarHistoricosSemana() {
+  return listar(STORES.weekHistory);
+}
+export async function salvarHistoricoSemana(registro) {
+  const id = `semana:${registro.inicio}`;
+  const atual = await obter(STORES.weekHistory, id);
+  return put(STORES.weekHistory, { ...registro, id }, { novo: !atual });
 }
 
 // ---------------------------------------------------------------------------

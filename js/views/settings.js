@@ -7,7 +7,7 @@ import { nomeDiaSemana, deISODate, hoje as hojeISO } from "../services/dates.js"
 import { gerarICS } from "../services/ics.js";
 import { exportarBackup, importarBackupTexto, entregarArquivo, estadoBackup } from "../services/backup.js";
 import { aplicarTema } from "../services/theme.js";
-import { calcularZonasFC } from "../services/dominio.js";
+import { calcularZonasFC, corridaFeita } from "../services/dominio.js";
 import { el, card, botao, campo, tituloVista, seletorBotoes, toast, estadoVazio, abrirSheet } from "./components/ui.js";
 
 const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -32,6 +32,7 @@ export async function renderAjustes(container) {
       el("p", { class: "eyebrow", text: "Semana e metas" }),
       el("div", { class: "lista-acoes" }, [
         botao("Agenda semanal", { bloco: true, onClick: () => irPara("agenda") }),
+        botao("Horários para treinar", { bloco: true, onClick: () => irPara("horarios") }),
         botao("Metas", { bloco: true, onClick: () => irPara("metas") }),
       ]),
     ])
@@ -104,7 +105,7 @@ export async function renderAjustes(container) {
         botao("Exportar calendário (.ics)", {
           variante: "primary", bloco: true, onClick: async () => {
             const todos = await repo.listarPlanned({ planId: plan.id });
-            const futuros = todos.filter((w) => w.dataPlanejada >= hojeISO() && w.status !== "concluido" && w.status !== "nao_realizado");
+            const futuros = todos.filter((w) => w.dataPlanejada >= hojeISO() && !corridaFeita(w.status) && w.status !== "nao_realizado");
             if (!futuros.length) { toast("Nenhum treino futuro para exportar."); return; }
             const ics = gerarICS(futuros, { horarioTreino: cfg.horarioTreino || "06:30", horarioLembrete: cfg.horarioLembrete || "20:00" });
             const metodo = await entregarArquivo(`plano-corrida-${hojeISO()}.ics`, ics, "text/calendar");

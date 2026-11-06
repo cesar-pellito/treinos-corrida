@@ -7,13 +7,14 @@
 // exportado em Ajustes (via repository.exportarTudo).
 
 export const DB_NOME = "treinos-corrida";
-export const DB_VERSAO = 4;
+export const DB_VERSAO = 5;
 
 // Nomes dos object stores.
 //   v1: os seis da corrida.
 //   v2: o hub (agenda semanal, sessões, alimentação).
 //   v3: itens da agenda movidos de dia/período numa semana específica.
 //   v4: sessões combinadas (merge de duas sessões de musculação da semana).
+//   v5: aba Semana (check-in do dia, exceções da semana e histórico por semana).
 export const STORES = {
   plans: "plans",
   phases: "phases",
@@ -26,6 +27,9 @@ export const STORES = {
   foodLogs: "foodLogs",
   scheduleMoves: "scheduleMoves",
   sessionMerges: "sessionMerges",
+  dailyCheckins: "dailyCheckins",
+  weekExceptions: "weekExceptions",
+  weekHistory: "weekHistory",
 };
 
 // Todos os stores, na ordem de criação. Todos carimbam atualizadoEm (merge
@@ -92,6 +96,7 @@ function criarSchema(db, versaoAntiga) {
   if (versaoAntiga < 2) migrarPara2(db);
   if (versaoAntiga < 3) migrarPara3(db);
   if (versaoAntiga < 4) migrarPara4(db);
+  if (versaoAntiga < 5) migrarPara5(db);
 }
 
 /** v1: os seis stores da corrida. Exportada para os testes de migração. */
@@ -153,6 +158,18 @@ export function migrarPara3(db) {
 export function migrarPara4(db) {
   const merges = db.createObjectStore(STORES.sessionMerges, { keyPath: "id" });
   merges.createIndex("data", "data", { unique: false });
+}
+
+/** v5: aba Semana. Só cria stores novos; os existentes ficam intactos. */
+export function migrarPara5(db) {
+  // Um check-in por dia e uma exceção por dia, com IDs estáveis (repository).
+  const checkins = db.createObjectStore(STORES.dailyCheckins, { keyPath: "id" });
+  checkins.createIndex("data", "data", { unique: false });
+  const excecoes = db.createObjectStore(STORES.weekExceptions, { keyPath: "id" });
+  excecoes.createIndex("data", "data", { unique: false });
+  // Plano original, rotas aceitas e resultado final de cada semana.
+  const historico = db.createObjectStore(STORES.weekHistory, { keyPath: "id" });
+  historico.createIndex("inicio", "inicio", { unique: false });
 }
 
 /**

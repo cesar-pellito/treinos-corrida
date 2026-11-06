@@ -4,6 +4,7 @@
 
 import * as repo from "../data/repository.js";
 import { hoje as hojeISO, diffDias, somarDias } from "./dates.js";
+import { corridaFeita } from "./dominio.js";
 
 /**
  * Status efetivo para exibição (derivado, não persistido):
@@ -11,7 +12,7 @@ import { hoje as hojeISO, diffDias, somarDias } from "./dates.js";
  *   - 'perdido' quando um treino pendente ficou no passado
  */
 export function statusEfetivo(planned, hoje = hojeISO()) {
-  if (planned.status === "concluido" || planned.status === "nao_realizado") return planned.status;
+  if (corridaFeita(planned.status) || planned.status === "nao_realizado") return planned.status;
   if (planned.dataPlanejada === hoje) return "hoje";
   if (planned.dataPlanejada < hoje) return "perdido";
   return planned.status; // 'futuro' | 'reagendado' (no futuro)
@@ -65,7 +66,7 @@ export async function resumoHoje(plan, hoje = hojeISO()) {
   const treinoHoje = planned.find((w) => w.dataPlanejada === hoje) || null;
 
   const futuros = planned
-    .filter((w) => w.dataPlanejada > hoje && w.status !== "concluido" && w.status !== "nao_realizado")
+    .filter((w) => w.dataPlanejada > hoje && !corridaFeita(w.status) && w.status !== "nao_realizado")
     .sort((a, b) => (a.dataPlanejada < b.dataPlanejada ? -1 : 1));
   const proximo = futuros[0] || null;
 
@@ -94,12 +95,14 @@ export async function resumoHoje(plan, hoje = hojeISO()) {
 /** Progresso de uma semana: sessões feitas/total e minutos feitos/total. */
 export function progressoSemana(planned, semana) {
   const daSemana = planned.filter((w) => w.semana === semana);
-  const feitos = daSemana.filter((w) => w.status === "concluido");
+  const feitos = daSemana.filter((w) => corridaFeita(w.status));
   const soma = (arr) => arr.reduce((a, w) => a + (w.duracaoMin || 0), 0);
+  // corrida encurtada soma os minutos informados no registro, não os do plano
+  const somaFeitos = feitos.reduce((a, w) => a + (w.status === "encurtado" ? w.duracaoRealMin || 0 : w.duracaoMin || 0), 0);
   return {
     feitos: feitos.length,
     total: daSemana.length,
-    minFeitos: soma(feitos),
+    minFeitos: somaFeitos,
     minTotal: soma(daSemana),
   };
 }
@@ -112,7 +115,7 @@ export function progressoSemana(planned, semana) {
 export function calcularStreak(planned, semanaAtualNum, minSessoes = 2) {
   const concluidosPorSemana = {};
   for (const w of planned) {
-    if (w.status === "concluido") concluidosPorSemana[w.semana] = (concluidosPorSemana[w.semana] || 0) + 1;
+    if (corridaFeita(w.status)) concluidosPorSemana[w.semana] = (concluidosPorSemana[w.semana] || 0) + 1;
   }
   let streak = 0;
   for (let s = semanaAtualNum; s >= 1; s--) {

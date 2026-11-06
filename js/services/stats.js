@@ -4,7 +4,7 @@
 
 import * as repo from "../data/repository.js";
 import { diffDias } from "./dates.js";
-import { rotuloTipo } from "./dominio.js";
+import { corridaFeita, rotuloTipo } from "./dominio.js";
 
 const TIPOS_FACEIS = ["continua", "longa", "corrida_caminhada"];
 
@@ -49,7 +49,7 @@ export async function seriesSemanais(plan, { tipoFacil = null } = {}) {
 
     const minutos = Math.round(feitosSemana.reduce((a, i) => a + (i.c.duracaoSeg || 0), 0) / 60);
     const km = Math.round(feitosSemana.reduce((a, i) => a + (i.c.distanciaMetros || 0), 0) / 100) / 10;
-    const concluidos = doPlano.filter((w) => w.status === "concluido").length;
+    const concluidos = doPlano.filter((w) => corridaFeita(w.status)).length;
 
     linhas.push({
       semana: s,
@@ -76,9 +76,9 @@ function media(arr) {
 export async function aderencia(plan, semanaAtual) {
   const planned = await repo.listarPlanned({ planId: plan.id });
   const ateAgora = planned.filter((w) => w.semana <= semanaAtual);
-  const concl = ateAgora.filter((w) => w.status === "concluido").length;
+  const concl = ateAgora.filter((w) => corridaFeita(w.status)).length;
   const daSemana = planned.filter((w) => w.semana === semanaAtual);
-  const conclSem = daSemana.filter((w) => w.status === "concluido").length;
+  const conclSem = daSemana.filter((w) => corridaFeita(w.status)).length;
   return {
     acumuladaPct: ateAgora.length ? Math.round((concl / ateAgora.length) * 100) : 0,
     semanaPct: daSemana.length ? Math.round((conclSem / daSemana.length) * 100) : 0,

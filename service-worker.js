@@ -10,7 +10,7 @@
 //
 // Ao mudar qualquer arquivo da casca, incremente CACHE_VERSAO.
 
-const CACHE_VERSAO = "v15";
+const CACHE_VERSAO = "v16";
 const CACHE_NOME = `treinos-corrida-${CACHE_VERSAO}`;
 
 const CASCA = [
@@ -24,6 +24,8 @@ const CASCA = [
   "./js/views/onboarding.js",
   "./js/views/today.js",
   "./js/views/treinos.js",
+  "./js/views/semana.js",
+  "./js/views/horarios-editor.js",
   "./js/views/nutricao.js",
   "./js/views/agenda-editor.js",
   "./js/views/metas-editor.js",
@@ -40,6 +42,7 @@ const CASCA = [
   "./js/views/components/arrastar.js",
   "./js/views/components/nutricao-ui.js",
   "./js/views/components/merge-ui.js",
+  "./js/views/components/aviso-semana.js",
   "./js/services/schedule.js",
   "./js/services/dates.js",
   "./js/services/pace.js",
@@ -53,12 +56,15 @@ const CASCA = [
   "./js/services/metas.js",
   "./js/services/nutricao.js",
   "./js/services/merge.js",
+  "./js/services/motor-rotas.js",
+  "./js/services/semana.js",
   "./js/data/db.js",
   "./js/data/repository.js",
   "./js/data/seed.js",
   "./js/data/seed-hub.js",
   "./js/data/plano-alimentar.js",
   "./js/data/sessoes-musculacao.js",
+  "./js/data/rotas-config.js",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/maskable-512.png",

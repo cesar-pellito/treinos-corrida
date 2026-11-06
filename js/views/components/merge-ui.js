@@ -238,7 +238,7 @@ export async function sheetMover(entrada, dataAtual) {
 export function sheetCombinada(merge) {
   const origens = merge.origens.map((o) => `${o.rotulo} (${diaCurto(o.dataOcorrencia)})`).join(" + ");
   const status = segmentos(
-    [{ valor: "", rotulo: "Pendente" }, { valor: "feito", rotulo: "Feito" }, { valor: "nao_feito", rotulo: "Não feito" }, { valor: "pulado", rotulo: "Pulado" }],
+    [{ valor: "", rotulo: "Pendente" }, { valor: "feito", rotulo: "Feito" }, { valor: "nao_feito", rotulo: "Não feito" }],
     { valorInicial: merge.status || "" }
   );
   const min = inputMinutos(merge.duracaoMin);

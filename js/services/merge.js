@@ -193,8 +193,9 @@ const ehMusculacao = (e) =>
 
 /**
  * Sessões de musculação que ficaram para trás (dia anterior a `hoje`, sem
- * registro de feito, não mescladas) e um dia livre de musculação, de hoje em
- * diante, para cada uma. Devolve [{entrada, data, destino}] (destino null = sem dia livre).
+ * registro, não mescladas) e um dia livre de musculação, de hoje em diante, para
+ * cada uma. Treino com ✕ já foi resolvido e não é cobrado de novo. Devolve
+ * [{entrada, data, destino}] (destino null = sem dia livre).
  */
 export function sugerirReorganizacao(semana, hoje = hojeISO()) {
   const livres = semana.dias
@@ -204,7 +205,7 @@ export function sugerirReorganizacao(semana, hoje = hojeISO()) {
   for (const dia of semana.dias) {
     if (dia.data >= hoje) continue;
     for (const e of dia.entradas) {
-      if (!podeJuntar(e) || e.item.opcional || statusDaSessao(e) === "pulado") continue;
+      if (!podeJuntar(e) || e.item.opcional || statusDaSessao(e)) continue;
       sugestoes.push({ entrada: e, data: dia.data, destino: livres.shift() || null });
     }
   }
@@ -222,9 +223,9 @@ export function pendentesDaSemana(semana) {
   return r;
 }
 
-/** Atrasadas = pendentes de dias anteriores a hoje (para o botão na tela Hoje). */
+/** Atrasadas = sem registro, de dias anteriores a hoje (para o convite na tela Hoje). Com ✕ não cobra. */
 export function atrasadasDaSemana(semana, hoje = hojeISO()) {
-  return pendentesDaSemana(semana).filter((p) => p.data < hoje && statusDaSessao(p.entrada) !== "pulado");
+  return pendentesDaSemana(semana).filter((p) => p.data < hoje && !statusDaSessao(p.entrada));
 }
 
 /** Aviso do dia seguinte à data da combinada (lê o dia, que pode ser da semana seguinte). */

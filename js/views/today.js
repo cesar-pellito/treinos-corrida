@@ -13,6 +13,7 @@ import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana, detalheCorrida } fro
 import { sheetJuntar } from "./components/merge-ui.js";
 import { pendentesDaSemana, atrasadasDaSemana } from "../services/merge.js";
 import { cardProteina, cardRefeicoesHoje } from "./components/nutricao-ui.js";
+import { avisoSemana } from "./components/aviso-semana.js";
 
 function dataExtensa(iso) {
   const d = deISODate(iso);
@@ -87,16 +88,18 @@ function avisoLacuna(ontem) {
 export async function renderHoje(container) {
   const data = hojeISO();
   const plan = await repo.planoAtivo();
-  const [entradas, semana, resumoCorrida, nutricao, lacuna] = await Promise.all([
+  const [entradas, semana, resumoCorrida, nutricao, lacuna, aviso] = await Promise.all([
     carregarDia(data),
     carregarSemana(data),
     plan ? resumoHoje(plan, data) : Promise.resolve(null),
     carregarDiaNutricao(data),
     lacunaOntem(data),
+    avisoSemana(),
   ]);
 
   container.appendChild(tituloVista("Hoje"));
   container.appendChild(el("p", { class: "hoje-data", text: dataExtensa(data) }));
+  if (aviso) container.appendChild(aviso);
   if (lacuna) container.appendChild(avisoLacuna(lacuna));
 
   container.appendChild(cardAgenda(entradas, data, resumoCorrida, semana));

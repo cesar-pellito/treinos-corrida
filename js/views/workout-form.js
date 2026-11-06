@@ -24,7 +24,7 @@ function segParaInput(s) {
   return h > 0 ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`;
 }
 
-export async function renderFormulario(container, { modo, id }) {
+export async function renderFormulario(container, { modo, id, aoSalvarIrPara = null }) {
   let planned = null;
   let completed = null;
   let desconfortosExistentes = [];
@@ -88,6 +88,13 @@ export async function renderFormulario(container, { modo, id }) {
 
   const sensacao = seletorBotoes(SENSACOES, { valorInicial: completed?.sensacao ?? null });
 
+  // Corrida do plano: o app só sabe que foi encurtada por aqui. Vem marcado se uma rota encurtou.
+  const inEncurtada = el("input", { type: "checkbox", id: "f-encurtada" });
+  inEncurtada.checked = planned ? (completed ? planned.status === "encurtado" : !!planned.encurtada) : false;
+  const campoEncurtada = planned
+    ? el("label", { class: "campo-marcar", for: "f-encurtada" }, [inEncurtada, el("span", { text: "Corrida encurtada" })])
+    : null;
+
   // Treino avulso pode ter um tipo (melhora a classificação nos gráficos)
   const ehAvulso = modo === "avulso" || (modo === "edicao" && !planned);
   const tipoAvulso = ehAvulso
@@ -150,7 +157,8 @@ export async function renderFormulario(container, { modo, id }) {
       try {
         let compId;
         if (modo === "edicao") {
-          await repo.atualizarTreino(completed.id, dados);
+          await repo.atualizarTreino(completed.id, { ...dados, encurtada: planned ? inEncurtada.checked : undefined });
+          if (planned) await repo.definirCorridaEncurtada(planned.id, inEncurtada.checked, seg);
           compId = completed.id;
           // desconfortos: adiciona novos (os existentes já estão salvos)
           for (const b of blocosDesc) {
@@ -159,7 +167,7 @@ export async function renderFormulario(container, { modo, id }) {
             }
           }
         } else {
-          const c = await repo.registrarTreino({ plannedWorkoutId: modo === "registro" ? planned.id : null, ...dados });
+          const c = await repo.registrarTreino({ plannedWorkoutId: modo === "registro" ? planned.id : null, encurtada: modo === "registro" && inEncurtada.checked, ...dados });
           compId = c.id;
           for (const b of blocosDesc) {
             if (b.regiao.get()) {
@@ -168,7 +176,7 @@ export async function renderFormulario(container, { modo, id }) {
           }
         }
         toast("Treino salvo.");
-        irPara("detalhe/" + compId);
+        irPara(aoSalvarIrPara || "detalhe/" + compId);
       } catch (e) {
         btnSalvar.disabled = false;
         erro.textContent = e && e.message ? e.message : "Não foi possível salvar.";
@@ -179,6 +187,7 @@ export async function renderFormulario(container, { modo, id }) {
   container.appendChild(
     card([
       campo("Data", inData),
+      campoEncurtada,
       ehAvulso ? campo("Tipo de treino", tipoAvulso.node) : null,
       campo("Distância (km)", inDist, "Opcional. Aceita vírgula ou ponto."),
       campo("Tempo", inTempo, "mm:ss ou h:mm:ss."),

@@ -9,7 +9,7 @@
 
 import * as repo from "../data/repository.js";
 import * as seedMod from "../data/seed.js";
-import { apagarDB, abrirDB, migrarPara1, migrarPara2, migrarPara3, DB_NOME, TODOS_STORES } from "../data/db.js";
+import { apagarDB, abrirDB, migrarPara1, migrarPara2, migrarPara3, migrarPara4, DB_NOME, TODOS_STORES } from "../data/db.js";
 import * as agenda from "../services/agenda.js";
 import { METAS_PADRAO, obterMetas, salvarMetas } from "../services/metas.js";
 import * as nutri from "../services/nutricao.js";
@@ -23,7 +23,8 @@ import {
   inicioDaSemana, ehISODateValida, hoje as hojeDeHoje,
 } from "../services/dates.js";
 import { aderencia, seriesSemanais, comparacaoSemelhante } from "../services/stats.js";
-import { statusEfetivo, remarcarEmpurrando } from "../services/schedule.js";
+import { statusEfetivo, remarcarEmpurrando, progressoSemana } from "../services/schedule.js";
+import * as semanaSrv from "../services/semana.js";
 import { recorrencia } from "../services/discomfort.js";
 import { gerarICS } from "../services/ics.js";
 
@@ -425,14 +426,14 @@ export async function rodarTestes(seed, reportar) {
     });
     v1.close();
 
-    // 2) o app abre (v4) e migra
+    // 2) o app abre (v5) e migra
     const db = await abrirDB();
-    eq(db.version, 4, "versão 4");
+    eq(db.version, 5, "versão 5");
     for (const s of TODOS_STORES) assert(db.objectStoreNames.contains(s), `store ${s} existe`);
 
     const cont = await repo.contarTudo();
     for (const s of Object.keys(dadosV1)) eq(cont[s], 1, `${s} preservado`);
-    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "scheduleMoves", "sessionMerges"]) eq(cont[s], 0, `${s} vazio`);
+    for (const s of ["weeklySchedule", "sessionLogs", "foodLogs", "scheduleMoves", "sessionMerges", "dailyCheckins", "weekExceptions", "weekHistory"]) eq(cont[s], 0, `${s} vazio`);
 
     // registros byte a byte iguais
     eq(JSON.stringify(await repo.obterPlano("p1")), JSON.stringify(dadosV1.plans[0]), "plano idêntico");
@@ -489,12 +490,12 @@ export async function rodarTestes(seed, reportar) {
     const item = await repo.salvarItemAgenda({ diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A" });
     const d = "2026-11-05"; // quinta
     const a = await agenda.marcarSessao(item, d, "feito");
-    const b = await agenda.marcarSessao(item, d, "pulado", { duracaoMin: 40 });
+    const b = await agenda.marcarSessao(item, d, "nao_feito", { duracaoMin: 40 });
     eq(a.id, b.id, "mesmo registro");
-    eq(b.status, "pulado"); eq(b.duracaoMin, 40);
+    eq(b.status, "nao_feito"); eq(b.duracaoMin, 40);
     eq((await repo.listarSessoes()).length, 1, "sem duplicar");
 
-    await agenda.alternarSessao(item, d, "pulado", b); // mesmo status => desmarca
+    await agenda.alternarSessao(item, d, "nao_feito", b); // mesmo status => desmarca
     eq((await repo.listarSessoes()).length, 0, "desmarcado some da lista");
     const c = await agenda.alternarSessao(item, d, "feito", null);
     eq(c.id, a.id, "reativa o mesmo registro (tombstone), não cria outro");
@@ -517,14 +518,14 @@ export async function rodarTestes(seed, reportar) {
     const ses = [
       { id: "1", data: "2026-11-02", scheduleItemId: "u", tipo: "musculacao", rotulo: "Upper A", status: "feito" },
       { id: "2", data: "2026-11-06", scheduleItemId: "k", tipo: "karate", rotulo: "Leve", status: "feito", opcional: true },
-      { id: "3", data: "2026-11-05", scheduleItemId: "l", tipo: "musculacao", rotulo: "Lower A", status: "pulado" },
+      { id: "3", data: "2026-11-05", scheduleItemId: "l", tipo: "musculacao", rotulo: "Lower A", status: "nao_feito" },
       { id: "4", data: "2026-11-07", scheduleItemId: null, tipo: "musculacao", rotulo: "Lower A", periodo: "manha", status: "feito" },
     ];
     const corridas = [{ id: "w", dataPlanejada: "2026-11-05", status: "concluido", titulo: "Corrida" }];
     const r = agenda.resumirSemana({ agenda: ag, sessoes: ses, corridas, inicio: "2026-11-02", metas: METAS_PADRAO });
     eq(r.previstos, 3, "Upper + Lower + corrida; opcional fora");
     eq(r.feitos, 2, "Upper + corrida");
-    eq(r.pulados, 1);
+    eq(r.naoFeitos, 1);
     eq(r.extras, 2, "karatê opcional + Lower fora da agenda");
     eq(r.lower, 1, "Lower feito no sábado conta");
     eq(r.metaLower, 2);
@@ -549,7 +550,7 @@ export async function rodarTestes(seed, reportar) {
     eq((await repo.importarBackup(dumpV1)).criados, 2);
     await repo.salvarItemAgenda({ diaSemana: 0, periodo: "manha", tipo: "musculacao", rotulo: "Lower B" });
     const dump = await repo.exportarTudo();
-    eq(dump.schemaVersion, 4);
+    eq(dump.schemaVersion, 5);
     eq(dump.stores.weeklySchedule.length, 1, "agenda no backup");
     await reset();
     await repo.importarBackup(dump);
@@ -751,7 +752,7 @@ export async function rodarTestes(seed, reportar) {
     v3.close();
 
     const db = await abrirDB();
-    eq(db.version, 4, "versão 4");
+    eq(db.version, 5, "versão 5");
     const dump = await repo.exportarTudo();
     for (const [s, recs] of Object.entries(dadosV3)) {
       eq(JSON.stringify(dump.stores[s]), JSON.stringify(recs), `${s} idêntico byte a byte`);
@@ -892,12 +893,12 @@ export async function rodarTestes(seed, reportar) {
     const por = (r) => ag.find((i) => i.rotulo === r && i.tipo === "musculacao");
     const SAB = "2026-10-31", DOM = "2026-11-01";
     await agenda.marcarSessao(por("Upper B"), "2026-10-28", "feito");
-    await agenda.marcarSessao(por("Lower A"), "2026-10-29", "pulado");
+    await agenda.marcarSessao(por("Lower A"), "2026-10-29", "nao_feito");
 
     let semana = await agenda.carregarSemana(SAB);
     const pend = merge.pendentesDaSemana(semana);
     eq(pend.map((p) => p.entrada.item.rotulo).join(","), "Upper A,Lower A,Lower B", "três pendentes");
-    eq(merge.atrasadasDaSemana(semana, SAB).map((p) => p.entrada.item.rotulo).join(","), "Upper A", "atrasada (pulada fica de fora)");
+    eq(merge.atrasadasDaSemana(semana, SAB).map((p) => p.entrada.item.rotulo).join(","), "Upper A", "atrasada (com ✕ fica de fora)");
     const escolhidas = pend.filter((p) => agenda.ehLower(p.entrada.item.rotulo));
 
     // juntar e desfazer: volta ao estado de antes
@@ -907,11 +908,11 @@ export async function rodarTestes(seed, reportar) {
     semana = await agenda.carregarSemana(SAB);
     eq(semana.musculacao.mescladas, 1);
     eq(semana.musculacao.cobertas, 1, "combinada pendente: origens não contam ainda");
-    eq(semana.pulados, 0, "o pulado virou mesclada");
+    eq(semana.naoFeitos, 0, "o não feito virou mesclada");
     await merge.desfazer(m);
     semana = await agenda.carregarSemana(SAB);
     const laDepois = semana.dias[3].entradas.find((e) => e.item && e.item.rotulo === "Lower A");
-    eq(laDepois.log.status, "pulado", "Lower A voltou a pulado");
+    eq(laDepois.log.status, "nao_feito", "Lower A voltou a não feito");
     const lbDepois = semana.dias[6].entradas.find((e) => e.item && e.item.rotulo === "Lower B");
     eq(lbDepois.log, null, "Lower B voltou sem registro");
     eq(semana.musculacao.mescladas, 0);
@@ -939,7 +940,7 @@ export async function rodarTestes(seed, reportar) {
     eq(semana.musculacao.cobertas, 4, "4 de 4 cobertas");
     eq(semana.musculacao.mescladas, 1, "1 mesclada");
     eq(semana.lower, 2, "Lower 2 de 2");
-    eq(semana.naoFeitos + semana.pulados, 0, "nada perdido");
+    eq(semana.naoFeitos, 0, "nada perdido");
     const extrasAntes = semana.extras;
     eq(semana.dias[6].entradas.filter((e) => e.item && e.item.rotulo === "Upper A").length, 1, "Upper A no domingo");
     eq(extrasAntes, 0, "a combinada não conta como extra");
@@ -1049,6 +1050,235 @@ export async function rodarTestes(seed, reportar) {
     eq(c.id, a.id, "reativa o mesmo registro");
     eq((await repo.contarTudo()).foodLogs, 1, "um registro só no banco");
     eq(c.criadoEm, a.criadoEm, "criadoEm não muda ao editar");
+  });
+
+  // -------------------------------------------------------------------------
+  // Aba Semana (v5): banco, serviço e motor ligados aos dados
+  // -------------------------------------------------------------------------
+  await test("migração v4→v5: stores novos vazios, resto idêntico e 'pulado' lido como não feito", async () => {
+    await reset();
+    const T = "2026-10-20T10:00:00.000Z";
+    const dados = {
+      plans: [{ id: "p1", nome: "Plano", ativo: true, criadoEm: T, atualizadoEm: T }],
+      weeklySchedule: [{ id: "a1", diaSemana: 4, periodo: "noite", tipo: "musculacao", rotulo: "Lower A", opcional: false, ordem: 0, atualizadoEm: T }],
+      sessionLogs: [{ id: "s1", data: "2026-10-22", scheduleItemId: "a1", tipo: "musculacao", rotulo: "Lower A", periodo: "noite", opcional: false, status: "pulado", removido: false, atualizadoEm: T }],
+      sessionMerges: [{ id: "m1", tipo: "musculacao", data: "2026-10-24", periodo: "manha", rotulo: "Lower A + Lower B", origens: [], status: "pulado", removido: false, atualizadoEm: T }],
+    };
+    const v4 = await new Promise((resolve, reject) => {
+      const r = globalThis.indexedDB.open(DB_NOME, 4);
+      r.onupgradeneeded = () => { migrarPara1(r.result); migrarPara2(r.result); migrarPara3(r.result); migrarPara4(r.result); };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    await new Promise((resolve, reject) => {
+      const tx = v4.transaction(Object.keys(dados), "readwrite");
+      for (const [s, recs] of Object.entries(dados)) for (const x of recs) tx.objectStore(s).put(x);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    v4.close();
+
+    const db = await abrirDB();
+    eq(db.version, 5, "versão 5");
+    const dump = await repo.exportarTudo();
+    for (const [s, recs] of Object.entries(dados)) eq(JSON.stringify(dump.stores[s]), JSON.stringify(recs), `${s} idêntico byte a byte`);
+    for (const s of ["dailyCheckins", "weekExceptions", "weekHistory"]) eq(dump.stores[s].length, 0, `${s} vazio`);
+    eq((await repo.listarSessoes())[0].status, "nao_feito", "pulado antigo é lido como não feito");
+    eq((await repo.listarMerges())[0].status, "nao_feito", "combinada pulada também");
+    let lancou = false;
+    try { await repo.registrarSessao({ data: "2026-10-29", status: "pulado" }); } catch { lancou = true; }
+    assert(lancou, "o app não grava mais 'pulado'");
+  });
+
+  // Semana de 02 a 08/11/2026 com agenda-padrão e corridas na quinta e no sábado.
+  const prepararSemanaDeTeste = async () => {
+    await reset();
+    await seedMod.semearHub();
+    await repo.definirConfig("primeiroDiaSemana", 1);
+    const plano = await repo.salvarPlano({ nome: "Plano", ativo: true, totalSemanas: 22, dataInicio: "2026-11-02" }, { novo: true });
+    const corrida = (id, dataPlanejada) => repo.salvarPlanned({ id, planId: plano.id, semana: 1, dataPlanejada, status: "futuro", titulo: "Corrida", duracaoMin: 30, descricao: "", rpeMin: 3, rpeMax: 4 }, { novo: true });
+    await corrida("run-qui", "2026-11-05");
+    await corrida("run-sab", "2026-11-07");
+    const ag = await repo.listarAgenda();
+    const item = (dia, rotulo) => ag.find((i) => i.diaSemana === dia && i.rotulo === rotulo);
+    return {
+      marcar: (dia, rotulo, data, status) => agenda.marcarSessao(item(dia, rotulo), data, status),
+      item,
+      quando: (d, h, m = 0) => new Date(2026, 10, d, h, m),
+    };
+  };
+  const semanaEmDiaAteQuarta = async (s) => {
+    await s.marcar(1, "Upper A", "2026-11-02", "feito");
+    await s.marcar(1, "Leve", "2026-11-02", "feito");
+    await s.marcar(2, "Intenso", "2026-11-03", "feito");
+    await s.marcar(3, "Upper B", "2026-11-04", "feito");
+    await s.marcar(3, "Leve", "2026-11-04", "feito");
+  };
+
+  await test("semana: aceitar rota aplica pelas funções existentes e volta a 'segue como está'", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(6, 12, 47);
+    const antes = await semanaSrv.situacaoSemana(agora);
+    assert(antes.aviso && antes.avaliacao.perdidas.length === 2, "corrida e Lower A de quinta sem registro");
+    const calc = await semanaSrv.recalcular(agora);
+    eq(calc.tipo, "rotas");
+    const rota = calc.rotas.find((r) => r.ops.some((o) => o.tipo === "juntar"));
+    assert(rota, "há rota que junta os Lower");
+    eq((await repo.listarMerges()).length, 0, "nada muda antes de aceitar");
+
+    await semanaSrv.aceitarRota(rota, agora);
+    const depois = await semanaSrv.situacaoSemana(agora);
+    eq(depois.aviso, false, depois.avaliacao.motivo);
+    const m = (await repo.listarMerges())[0];
+    eq(m.rotulo, "Lower A + Lower B", "usou o merge existente");
+    assert(m.plano && m.plano.itens.length, "com o snapshot da sugestão");
+    const hist = await repo.obterHistoricoSemana("2026-11-02");
+    assert(hist.planoOriginal.length >= 10, "plano original guardado");
+    eq(hist.escolhas.length, 1, "rota aceita no histórico");
+    eq(hist.escolhas[0].mudancas.length, rota.mudancas.length);
+    assert(hist.escolhas[0].custo === rota.custo && hist.escolhas[0].em, "custo, data e hora");
+    eq(hist.planoOriginal.find((p) => p.plannedWorkoutId === "run-qui").data, "2026-11-05", "a corrida segue no dia original");
+  });
+
+  await test("semana: rota que move, encurta ou deixa de fazer grava nos status existentes", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    await s.marcar(4, "Lower A", "2026-11-05", "feito");
+    await repo.marcarStatusPlanned("run-qui", "concluido");
+    const agora = s.quando(7, 7, 30);
+    await semanaSrv.salvarCheckinDeHoje({ fascia: true }, agora);
+    const sit = await semanaSrv.situacaoSemana(agora);
+    assert(sit.aviso, "fáscia gera aviso sozinha");
+    const calc = await semanaSrv.recalcular(agora);
+    const encurtar = calc.rotas.find((r) => r.ops.some((o) => o.tipo === "encurtar"));
+    const naoFazer = calc.rotas.find((r) => r.ops.some((o) => o.tipo === "naoFazer" && o.id === "run:run-sab"));
+    assert(encurtar && naoFazer, "encurtar e não fazer");
+    assert(!calc.rotas.some((r) => r.ops.some((o) => o.tipo === "mover" && o.id === "run:run-sab")), "não vai para outro dia");
+
+    await semanaSrv.aceitarRota(encurtar, agora);
+    let w = await repo.obterPlanned("run-sab");
+    assert(w.encurtada, "marcada como encurtada");
+    eq(w.status, "futuro", "continua pendente: só vira encurtado ao registrar");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "a corrida encurtada respeita a fáscia");
+    assert(agenda.podeMover({ tipo: "corrida", planned: w }), "pendente ainda pode mudar");
+
+    await repo.registrarTreino({ plannedWorkoutId: "run-sab", data: "2026-11-07", duracaoSeg: 720, encurtada: true });
+    w = await repo.obterPlanned("run-sab");
+    eq(w.status, "encurtado");
+    eq(w.duracaoRealMin, 12, "soma o tempo informado");
+    assert(!agenda.podeMover({ tipo: "corrida", planned: w }), "conta como feita");
+    eq(statusEfetivo(w, "2026-11-20"), "encurtado");
+    const prog = progressoSemana(await repo.listarPlanned({ planId: w.planId }), 1);
+    eq(prog.feitos, 2, "conta como feita no progresso");
+    eq(prog.minFeitos, 42, "30 da corrida inteira + 12 da encurtada");
+    const res = (await agenda.carregarSemana("2026-11-07"));
+    eq(res.feitos, 8, "conta como feita na semana");
+    await repo.definirCorridaEncurtada("run-sab", false, 720);
+    eq((await repo.obterPlanned("run-sab")).status, "concluido", "o formulário de edição corrige");
+  });
+
+  await test("semana: marcar não atualiza sozinho; recalcular decide; ✕ de rota aceita não volta", async () => {
+    const s = await prepararSemanaDeTeste();
+    const agora = s.quando(4, 8);
+    let sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.avaliacao.perdidas.length, 3, "segunda e terça sem registro");
+
+    await s.marcar(1, "Upper A", "2026-11-02", "feito");
+    await s.marcar(1, "Leve", "2026-11-02", "feito");
+    await s.marcar(2, "Intenso", "2026-11-03", "feito");
+    sit = await semanaSrv.situacaoSemana(agora);
+    assert(!sit.avaliacao.fora, "tudo marcado");
+    assert(sit.aviso && sit.pendente, "o aviso fica até recalcular");
+    eq((await semanaSrv.situacaoSemana(agora)).pendente, true, "continua depois de reler, como ao reabrir o app");
+    const emDia = await semanaSrv.recalcular(agora);
+    eq(emDia.tipo, "em_dia");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false, "agora está em dia");
+
+    await s.marcar(1, "Upper A", "2026-11-02", "nao_feito");
+    sit = await semanaSrv.situacaoSemana(agora);
+    assert(sit.pendente, "✕ novo pede recálculo");
+    const calc = await semanaSrv.recalcular(agora);
+    eq(calc.tipo, "ofertas");
+    const mover = calc.rotas.find((r) => r.mudancas[0] === "Mover Upper A para sexta de manhã");
+    assert(mover, `oferece mover: ${calc.rotas.map((r) => r.mudancas[0])}`);
+
+    await semanaSrv.manterComoEsta(agora);
+    eq((await repo.obterHistoricoSemana("2026-11-02")).escolhas.at(-1).tipo, "manter", "manter fica no histórico");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false);
+
+    await semanaSrv.aceitarRota(mover, agora);
+    const semana = await agenda.carregarSemana("2026-11-04");
+    const sexta = semana.dias[4].entradas.find((e) => e.item && e.item.rotulo === "Upper A");
+    assert(sexta && !sexta.log, "o ✕ saiu e o treino está pendente na sexta");
+    eq((await semanaSrv.situacaoSemana(agora)).aviso, false);
+    eq((await semanaSrv.recalcular(agora)).tipo, "em_dia", "nada mais a oferecer");
+  });
+
+  await test("semana: semana comprometida fecha o resto como não feito só ao aceitar", async () => {
+    const s = await prepararSemanaDeTeste();
+    const agora = s.quando(8, 8);
+    const calc = await semanaSrv.recalcular(agora);
+    eq(calc.tipo, "comprometida");
+    const rota = calc.rotas[0];
+    eq(rota.ops.filter((o) => o.tipo === "juntar").length, 2);
+    eq((await repo.listarSessoes()).length, 0, "nada gravado antes de aceitar");
+    await semanaSrv.aceitarRota(rota, agora);
+    eq((await repo.listarMerges()).length, 2, "dois merges");
+    assert((await repo.listarSessoes()).filter((x) => x.status === "nao_feito").length >= 3, "karatês como não feitos");
+    eq((await repo.obterPlanned("run-qui")).status, "nao_realizado");
+    const sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.aviso, false, sit.avaliacao.motivo);
+    await s.marcar(1, "Leve", "2026-11-02", "feito");
+    eq((await repo.listarSessoes()).find((x) => x.scheduleItemId === s.item(1, "Leve").id).status, "feito", "marcação retroativa continua valendo");
+  });
+
+  await test("semana: fecha na primeira abertura depois de domingo e a semana seguinte começa limpa", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    await semanaSrv.prepararSemana(s.quando(6, 10));
+    await semanaSrv.definirExcecao("2026-11-06", { bloqueio: "manha", feriado: false }, s.quando(6, 10));
+    await semanaSrv.salvarCheckinDeHoje({ disposicao: 2 }, s.quando(6, 10));
+
+    const segunda = new Date(2026, 10, 9, 7);
+    const sit = await semanaSrv.situacaoSemana(segunda);
+    const hist = await repo.obterHistoricoSemana("2026-11-02");
+    assert(hist.fechadaEm, "semana anterior fechada");
+    eq(hist.resultado.naoFeitos, 4, "corrida e Lower pendentes de quinta, corrida de sábado e Lower B");
+    const logs = await repo.listarSessoes({ de: "2026-11-02", ate: "2026-11-08" });
+    assert(!logs.some((x) => x.rotulo === "Leve" && x.data === "2026-11-06"), "aula opcional não é cobrada");
+    eq((await repo.obterPlanned("run-sab")).status, "nao_realizado");
+
+    assert(await repo.obterHistoricoSemana("2026-11-09"), "plano original da semana nova");
+    eq(sit.semana.inicio, "2026-11-09");
+    eq(Object.keys(sit.estado.ctx.excecoes).length, 0, "exceções zeradas");
+    eq(sit.checkin, null, "check-in zerado");
+    eq((await repo.listarCheckins()).length, 1, "o check-in antigo fica no histórico");
+
+    await s.marcar(4, "Lower A", "2026-11-05", "feito");
+    await semanaSrv.atualizarResultadoSemana("2026-11-02");
+    eq((await repo.obterHistoricoSemana("2026-11-02")).resultado.naoFeitos, 3, "marcação retroativa atualiza o resultado");
+
+    const dump = await repo.exportarTudo();
+    assert(dump.stores.weekHistory.length === 2 && dump.stores.dailyCheckins.length === 1 && dump.stores.weekExceptions.length === 1, "entram no backup");
+    eq((await repo.importarBackup(dump)).criados, 0, "reimportar não duplica");
+  });
+
+  await test("semana: dois treinos no mesmo período e horários fora da grade", async () => {
+    const s = await prepararSemanaDeTeste();
+    await semanaEmDiaAteQuarta(s);
+    const agora = s.quando(5, 7);
+    const semana = await agenda.carregarSemana("2026-11-05");
+    const lowerA = semana.dias[3].entradas.find((e) => e.item && e.item.rotulo === "Lower A");
+    await agenda.moverEntrada(lowerA, "2026-11-05", { data: "2026-11-06", periodo: "noite", ordem: 1 });
+    const sit = await semanaSrv.situacaoSemana(agora);
+    eq(sit.aviso, false, sit.avaliacao.motivo);
+    eq(sit.semana.dias[4].entradas.filter((e) => e.periodo === "noite").length, 2, "Lower A e karatê juntos");
+
+    const padrao = await semanaSrv.obterDisponibilidade();
+    eq(padrao[5].manha, true, "a grade começa toda marcada");
+    await semanaSrv.salvarDisponibilidade({ ...padrao, 5: { manha: false, noite: true } });
+    eq((await semanaSrv.obterDisponibilidade())[5].manha, false);
   });
 
   await reset();

@@ -2,7 +2,7 @@
 //
 // Fontes:
 //   - weeklySchedule: o que está previsto em cada dia da semana (configurável)
-//   - sessionLogs:    o que foi feito/não feito/pulado (musculação e karatê)
+//   - sessionLogs:    o que foi feito/não feito (musculação e karatê)
 //   - plannedWorkouts do plano ativo: as corridas (registradas pelo fluxo da corrida)
 // Os itens `corrida` da agenda são só referência visual (dia/período): a corrida
 // do dia vem SEMPRE do plano.
@@ -10,25 +10,36 @@
 // Definições (também na tela "Como calculamos"):
 //   - previstos: itens não opcionais da semana + corridas do plano na semana
 //   - aderência: feitos / previstos. Opcional feito e sessão fora da agenda
-//     contam como extra; "pulado" aparece separado e não conta como feito
+//     contam como extra
 //   - Lower: sessões de musculação FEITAS com rótulo "Lower…", em qualquer dia
 //   - sessão combinada (merge): não é um previsto novo nem extra. Cada origem
 //     continua prevista uma vez e segue o status da combinada: feita => as
-//     origens contam como feitas ("cobertas"); não feita/pulada => idem; pendente
+//     origens contam como feitas ("cobertas"); não feita => idem; pendente
 //     => pendente. Os Lower cobertos contam no "Lower X de 2".
 
 import * as repo from "../data/repository.js";
 import { hoje as hojeISO, diaDaSemana, inicioDaSemana, somarDias } from "./dates.js";
+import { corridaFeita } from "./dominio.js";
 import { obterMetas } from "./metas.js";
 
 export const ROTULO_TIPO = { musculacao: "Musculação", karate: "Karatê", corrida: "Corrida" };
 export const ROTULO_PERIODO = { manha: "Manhã", noite: "Noite" };
+
+// Feriados da semana carregada: no fim de semana e no feriado, o slot da noite é tarde/noite.
+let feriadosDaSemana = new Set();
+
+/** Rótulo do período naquele dia: "Manhã", "Noite" ou "Tarde". */
+export function rotuloPeriodoNoDia(periodo, data) {
+  if (periodo !== "noite" || !data) return ROTULO_PERIODO[periodo] || "";
+  const dia = diaDaSemana(data);
+  return dia === 0 || dia === 6 || feriadosDaSemana.has(data) ? "Tarde" : ROTULO_PERIODO.noite;
+}
 export const ROTULOS_SUGERIDOS = {
   musculacao: ["Upper A", "Upper B", "Lower A", "Lower B"],
   karate: ["Leve", "Intenso"],
   corrida: ["Corrida curta", "Corrida Z2"],
 };
-export const ROTULO_STATUS = { feito: "Feito", nao_feito: "Não feito", pulado: "Pulado" };
+export const ROTULO_STATUS = { feito: "Feito", nao_feito: "Não feito" };
 
 const ORDEM_PERIODO = { manha: 0, noite: 1 };
 
@@ -161,7 +172,7 @@ export function statusDaSessao(e) {
 export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], merges = [], inicio, metas }) {
   const r = {
     inicio, fim: somarDias(inicio, 6), dias: [],
-    previstos: 0, feitos: 0, pulados: 0, naoFeitos: 0, extras: 0,
+    previstos: 0, feitos: 0, naoFeitos: 0, extras: 0,
     lower: 0, metaLower: metas.lowerPorSemana,
     // musculação: "4 de 4 cobertas (1 mesclada)"
     musculacao: { previstas: 0, cobertas: 0, mescladas: 0 },
@@ -178,7 +189,6 @@ export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], merg
         } else {
           r.previstos++;
           if (st === "feito") r.feitos++;
-          else if (st === "pulado") r.pulados++;
           else if (st === "nao_feito") r.naoFeitos++;
           if (e.item.tipo === "musculacao") {
             r.musculacao.previstas++;
@@ -191,7 +201,7 @@ export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], merg
         r.musculacao.mescladas++;
       } else if (e.tipo === "corrida") {
         r.previstos++;
-        if (e.planned.status === "concluido") r.feitos++;
+        if (corridaFeita(e.planned.status)) r.feitos++;
         else if (e.planned.status === "nao_realizado") r.naoFeitos++;
       } else if (e.tipo === "avulsa" && e.log.status === "feito" && !e.credita) {
         r.extras++; // a que credita um item já contou como "feito" no dia do item
@@ -204,14 +214,16 @@ export function resumirSemana({ agenda, sessoes, corridas, movimentos = [], merg
 }
 
 async function carregarBase(de, ate) {
-  const [agenda, sessoes, movimentos, merges, plan, metas] = await Promise.all([
+  const [agenda, sessoes, movimentos, merges, plan, metas, excecoes] = await Promise.all([
     repo.listarAgenda(),
     repo.listarSessoes({ de, ate }),
     repo.listarMovimentos({ de, ate }),
     repo.listarMerges({ de, ate }),
     repo.planoAtivo(),
     obterMetas(),
+    repo.listarExcecoes({ de, ate }),
   ]);
+  feriadosDaSemana = new Set(excecoes.filter((x) => x.feriado).map((x) => x.data));
   const corridas = plan
     ? (await repo.listarPlanned({ planId: plan.id })).filter((w) => w.dataPlanejada >= de && w.dataPlanejada <= ate)
     : [];
@@ -320,7 +332,7 @@ export function desmarcarSessao(log) {
  */
 export function podeMover(entrada) {
   if (entrada.tipo === "sessao") return !entrada.remanejado && !(entrada.log && entrada.log.status === "mesclada");
-  if (entrada.tipo === "corrida") return entrada.planned.status !== "concluido";
+  if (entrada.tipo === "corrida") return !corridaFeita(entrada.planned.status);
   return false;
 }
 

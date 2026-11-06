@@ -280,6 +280,7 @@ input[type="date"], input[type="text"], input[type="number"], select {
 .st-futuro { background: var(--muted); }
 .st-hoje { background: var(--accent); }
 .st-concluido { background: #1a9e63; }
+.st-encurtado { background: var(--ok); opacity: .55; }
 .st-perdido { background: #d97706; }
 .st-nao_realizado { background: var(--danger); }
 .st-reagendado { background: var(--warn); }
@@ -356,7 +357,6 @@ input[type="date"], input[type="text"], input[type="number"], select {
 .agenda-linha__sub { font-size: .82rem; color: var(--muted); }
 .agenda-linha--feito { border-color: var(--ok); background: var(--ok-weak); }
 .agenda-linha--nao_feito { border-color: var(--danger-weak); }
-.agenda-linha--pulado { border-style: dashed; }
 .agenda-linha--feito .agenda-linha__titulo { color: var(--ok-ink); }
 .agenda-linha__detalhe { padding: 0 12px 12px; }
 .agenda-linha__detalhe .btn { margin-top: 12px; }
@@ -374,7 +374,6 @@ input[type="date"], input[type="text"], input[type="number"], select {
 .check3__op:active { transform: scale(.94); }
 .check3__op--feito[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: #fff; }
 .check3__op--nao_feito[aria-pressed="true"] { background: var(--danger); border-color: var(--danger); color: #fff; }
-.check3__op--pulado[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; }
 
 /* ---------- Resumo da semana ---------- */
 .semana-resumo { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
@@ -573,6 +572,63 @@ body.arrastando .slot--vazio.slot--alvo { border-color: transparent; background:
 .dia-proteina--btn { width: 100%; padding: 4px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
 .dia-proteina--btn:active { background: var(--surface-2); }
 .dia-proteina__vazio { color: var(--accent); font-weight: 600; }
+/* ---------- Aba Semana ---------- */
+.campo-marcar { display: flex; align-items: center; gap: 10px; min-height: var(--tap); margin-bottom: 12px; font-weight: 600; }
+.campo-marcar input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+.aviso-semana { display: block; width: 100%; min-height: var(--tap); margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--warn); border-radius: var(--radius-sm); background: var(--warn-weak); color: var(--warn); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.semana-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.semana-topo .view-titulo { margin-bottom: 12px; }
+.semana-status { display: grid; gap: 8px; }
+.semana-status .eyebrow { margin: 0; }
+.semana-status p { margin: 0; }
+.semana-status--aviso { background: var(--warn-weak); border-color: var(--warn); }
+.semana-status--aviso .eyebrow { color: var(--warn); }
+.semana-status--ok { background: var(--ok-weak); border-color: var(--ok); }
+.semana-status--comprometida { background: var(--danger-weak); border-color: var(--danger); }
+.sem-registro { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sem-registro__nome { font-size: .92rem; font-weight: 600; min-width: 0; }
+.rotas { display: grid; gap: 10px; margin-bottom: 14px; }
+.rotas .card { margin-bottom: 0; }
+.rotas > .eyebrow { margin: 0; color: var(--muted); }
+.rota { display: grid; gap: 8px; }
+.rota .eyebrow, .rota p { margin: 0; }
+.rota ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.rotas details summary { cursor: pointer; font-weight: 650; }
+.rotas details ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); font-size: .9rem; }
+.checkin-resumo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.checkin-resumo .eyebrow, .checkin-resumo p { margin: 0; }
+.checkin-pergunta { display: grid; gap: 6px; margin-top: 12px; }
+.checkin-pergunta > span { font-size: .9rem; font-weight: 600; }
+.checkin-ajuda { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .76rem; }
+.grade-semana { display: grid; grid-template-columns: 46px minmax(0, 1fr) minmax(0, 1fr); gap: 5px; }
+.grade-semana__cab { padding-left: 4px; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.grade-dia { padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; line-height: 1.15; text-align: left; cursor: pointer; }
+.grade-dia b { display: block; font-size: .88rem; }
+.grade-dia small { color: var(--muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.grade-dia__feriado { display: block; color: var(--accent); font-weight: 700; }
+.grade-dia--hoje b { color: var(--accent); }
+.grade-slot { display: grid; gap: 3px; min-width: 0; }
+.grade-cel { display: flex; flex-direction: column; justify-content: center; width: 100%; min-width: 0; min-height: 50px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: inherit; font: inherit; line-height: 1.2; text-align: left; }
+button.grade-cel { cursor: pointer; }
+.grade-cel__t { font-size: .8rem; font-weight: 650; overflow-wrap: anywhere; }
+.grade-cel__n { color: var(--muted); font-size: .7rem; overflow-wrap: anywhere; }
+.grade-cel--feito { border-color: var(--ok); background: var(--ok-weak); }
+.grade-cel--feito .grade-cel__t { color: var(--ok-ink); }
+.grade-cel--nao_feito { border-color: var(--danger); }
+.grade-cel--nao_feito .grade-cel__t { color: var(--danger); }
+.grade-cel--perdida { border-color: var(--warn); background: var(--warn-weak); }
+.grade-cel--perdida .grade-cel__n { color: var(--warn); font-weight: 700; }
+.grade-cel--mudou { border-color: var(--accent); background: var(--accent-weak); }
+.grade-cel--saiu { background: var(--surface-2); color: var(--muted); }
+.grade-cel--saiu .grade-cel__t { font-weight: 500; }
+.grade-cel--vazio { align-items: center; border-style: dashed; background: none; color: var(--muted); font-size: .72rem; }
+.grade-cel--passou { border-color: transparent; }
+.grade-cel--bloqueado { background: var(--surface-2); }
+.horarios { display: grid; grid-template-columns: 1fr 88px 88px; gap: 8px; align-items: center; }
+.horarios__cab { color: var(--muted); font-size: .76rem; font-weight: 700; text-align: center; text-transform: uppercase; }
+.horarios__dia { font-weight: 600; }
+.horarios .chip { min-width: 0; width: 100%; }
+
 .aviso-lacuna { display: flex; align-items: center; gap: 4px; margin: -4px 0 12px; padding: 2px 2px 2px 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
 .aviso-lacuna__texto { flex: 1; padding: 8px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
 .aviso-lacuna__acao { color: var(--accent); font-weight: 650; }

@@ -8,7 +8,7 @@ import {
   hoje as hojeISO, deISODate, paraISODate, somarDias, diaDaSemana,
   inicioDaSemana, nomeDiaSemana,
 } from "../services/dates.js";
-import { STATUS_ROTULO } from "../services/dominio.js";
+import { STATUS_ROTULO, corridaFeita } from "../services/dominio.js";
 import { el, card, botao, tituloVista, abrirSheet, segmentos, toast } from "./components/ui.js";
 
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -114,7 +114,7 @@ export async function renderCalendario(container, _param, { embutido = false } =
     const st = statusEfetivo(w, hojeISO());
     const acoes = el("div", { class: "lista-acoes", style: { marginTop: "10px" } });
 
-    if (st === "concluido") {
+    if (corridaFeita(st)) {
       acoes.appendChild(botao("Ver treino", {
         variante: "primary", bloco: true, onClick: async () => {
           const c = await repo.completedPorPlanned(w.id);
@@ -195,7 +195,7 @@ export async function renderCalendario(container, _param, { embutido = false } =
 
 function legenda() {
   const itens = [
-    ["st-futuro", "Futuro"], ["st-hoje", "Hoje"], ["st-concluido", "Concluído"],
+    ["st-futuro", "Futuro"], ["st-hoje", "Hoje"], ["st-concluido", "Concluído"], ["st-encurtado", "Encurtado"],
     ["st-perdido", "Perdido"], ["st-nao_realizado", "Não realizado"], ["st-reagendado", "Reagendado"],
   ];
   return el("div", { class: "legenda" }, itens.map(([c, r]) =>

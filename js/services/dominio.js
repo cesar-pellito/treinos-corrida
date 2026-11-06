@@ -35,10 +35,16 @@ export const STATUS_ROTULO = {
   futuro: "Futuro",
   hoje: "Hoje",
   concluido: "Concluído",
+  encurtado: "Encurtado",
   nao_realizado: "Não realizado",
   reagendado: "Reagendado",
   perdido: "Perdido",
 };
+
+/** Corrida encurtada conta como feita, com carga menor. */
+export function corridaFeita(status) {
+  return status === "concluido" || status === "encurtado";
+}
 
 // Zonas de intensidade do plano (RPE + % da FC máxima).
 export const ZONAS_FC = [

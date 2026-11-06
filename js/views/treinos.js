@@ -3,7 +3,7 @@
 // views da corrida, embutidas.
 
 import * as repo from "../data/repository.js";
-import { carregarSemana, primeiroDiaSemana, podeMover, moverEntrada, ROTULO_PERIODO } from "../services/agenda.js";
+import { carregarSemana, primeiroDiaSemana, podeMover, moverEntrada, ROTULO_PERIODO, rotuloPeriodoNoDia } from "../services/agenda.js";
 import { resumoHoje } from "../services/schedule.js";
 import { hoje as hojeISO, somarDias, inicioDaSemana, deISODate, nomeDiaSemana } from "../services/dates.js";
 import { irPara, recarregar } from "./router.js";
@@ -12,6 +12,8 @@ import { linhaEntrada, sheetSessaoAvulsa, cardResumoSemana } from "./components/
 import { sheetJuntar } from "./components/merge-ui.js";
 import { pendentesDaSemana } from "../services/merge.js";
 import { ativarArrastar } from "./components/arrastar.js";
+import { avisoSemana } from "./components/aviso-semana.js";
+import { atualizarResultadoSemana } from "../services/semana.js";
 import { renderCalendario } from "./calendar.js";
 import { renderEvolucao } from "./evolution.js";
 import { renderHistorico } from "./history.js";
@@ -43,6 +45,8 @@ function ordemNaPosicao(ordens, indice) {
 export async function renderTreinos(container, param) {
   const seg = SEGMENTOS.some((s) => s.valor === param) ? param : "semana";
   container.appendChild(tituloVista("Treinos"));
+  const aviso = await avisoSemana();
+  if (aviso) container.appendChild(aviso);
   const seletor = segmentos(SEGMENTOS, { valorInicial: seg, onChange: (v) => irPara("treinos/" + v) }).node;
   seletor.classList.add("segmentos--cheio");
   container.appendChild(seletor);
@@ -62,6 +66,7 @@ async function renderSemana(container) {
   const atual = inicioDaSemana(hoje, pds);
   if (!semanaRef) semanaRef = atual;
   const r = await carregarSemana(semanaRef);
+  if (semanaRef !== atual) await atualizarResultadoSemana(r.inicio);
 
   const mudar = (dias) => { semanaRef = somarDias(semanaRef, dias); recarregar(); };
   const ehAtual = semanaRef === atual;
@@ -91,7 +96,7 @@ async function renderSemana(container) {
       });
       return el("div", {
         class: `slot${linhas.length ? "" : " slot--vazio"}`,
-        dataset: { data: dia.data, periodo, rotulo: `Soltar aqui · ${ROTULO_PERIODO[periodo]}` },
+        dataset: { data: dia.data, periodo, rotulo: `Soltar aqui · ${rotuloPeriodoNoDia(periodo, dia.data)}` },
       }, linhas);
     });
     semana.appendChild(el("section", { class: `card dia-card${dia.data === hoje ? " dia-card--hoje" : ""}` }, [
@@ -108,7 +113,7 @@ async function renderSemana(container) {
       const ordem = ordemNaPosicao(vizinhas.map((n) => Number(n.dataset.ordem)), indice);
       try {
         await moverEntrada(contexto.entrada, contexto.data, { data, periodo, ordem });
-        toast(`Movido para ${nomeDiaSemana(data)} · ${ROTULO_PERIODO[periodo].toLowerCase()}`);
+        toast(`Movido para ${nomeDiaSemana(data)} · ${rotuloPeriodoNoDia(periodo, data).toLowerCase()}`);
       } catch (e) {
         toast("Não foi possível mover: " + (e && e.message));
       }
