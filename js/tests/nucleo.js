@@ -1217,7 +1217,7 @@ export async function rodarTestes(seed, reportar) {
 
   await test("semana: semana comprometida fecha o resto como não feito só ao aceitar", async () => {
     const s = await prepararSemanaDeTeste();
-    const agora = s.quando(8, 8);
+    const agora = s.quando(7, 8);
     const calc = await semanaSrv.recalcular(agora);
     eq(calc.tipo, "comprometida");
     const rota = calc.rotas[0];

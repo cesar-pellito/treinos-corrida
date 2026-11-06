@@ -210,7 +210,7 @@ export async function sheetMover(entrada, dataAtual) {
   const dias = Array.from({ length: 7 }, (_, i) => somarDias(inicio, i)).map((d) => ({ valor: d, rotulo: diaCurto(d) }));
   const dia = seletorBotoes(dias, { valorInicial: dataAtual, colunas: 4 });
   const periodo = segmentos([{ valor: "manha", rotulo: "Manhã" }, { valor: "noite", rotulo: "Noite" }], { valorInicial: entrada.periodo });
-  const titulo = entrada.item ? entrada.item.rotulo || "Sessão" : "Sessão";
+  const titulo = entrada.item ? entrada.item.rotulo || "Sessão" : entrada.tipo === "corrida" ? "corrida" : "Sessão";
   const ok = botao("Mover", {
     variante: "primary", bloco: true, onClick: async () => {
       ok.disabled = true;

@@ -628,6 +628,7 @@ button.grade-cel { cursor: pointer; }
 .horarios__cab { color: var(--muted); font-size: .76rem; font-weight: 700; text-align: center; text-transform: uppercase; }
 .horarios__dia { font-weight: 600; }
 .horarios .chip { min-width: 0; width: 100%; }
+.horarios .chip[disabled] { opacity: .35; cursor: not-allowed; }
 
 .aviso-lacuna { display: flex; align-items: center; gap: 4px; margin: -4px 0 12px; padding: 2px 2px 2px 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
 .aviso-lacuna__texto { flex: 1; padding: 8px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }

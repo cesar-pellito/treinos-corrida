@@ -24,6 +24,9 @@ export const HORA_DE_REFERENCIA = {
 // Noites de aula real, em Date.getDay() (0 = domingo … 6 = sábado).
 export const NOITES_DE_KARATE = { intenso: [2], leve: [1, 3, 5] };
 
+// O motor nunca sugere estes slots. Quem coloca um treino ali à mão pode: não gera aviso.
+export const SLOTS_QUE_NUNCA_SUGERE = [{ dia: 0, periodo: "noite" }]; // domingo à tarde
+
 // Prioridade: 1 é a mais alta. Família agrupa treinos para o intervalo de 48h.
 export const CATALOGO = {
   intenso: { prioridade: 1, familia: "karate", nome: "Karatê intenso" },

@@ -129,6 +129,7 @@ O motor (`js/services/motor-rotas.js`) é um conjunto de funções puras: recebe
 - **Slots:** cada dia tem manhã e noite. Dia útil: manhã até 9h, noite até 22h. Sábado, domingo e feriado: manhã até 13h, tarde/noite até 22h. Slot livre = marcado em Ajustes → Horários para treinar, sem "não posso", não passou e sem sessão.
 - **Sem registro:** treino num slot que passou sem status. A aula opcional não entra: perdê-la não gera aviso nem custo, e pendente não conta no limite de 3 karatês.
 - **Regras obrigatórias:** feita não muda; karatê só nas noites de aula; até 3 karatês; karatê e corrida nunca no mesmo dia; Lower nunca em dias seguidos nem no dia do intenso; até 2 treinos por dia; duas corridas nunca no mesmo dia; piso de 1 Upper e 1 Lower; com dor na fáscia, a corrida de hoje só encurtada ou não feita (e não vai para outro dia). Regra quebrada só entre treinos feitos não conta.
+- **Domingo à tarde:** as rotas nunca sugerem esse horário (`SLOTS_QUE_NUNCA_SUGERE` em `rotas-config.js`). Um treino que você coloca lá à mão continua valendo, sem aviso.
 - **Dois treinos no mesmo período** são permitidos quando você arruma assim, e isso não gera aviso. O motor, por conta própria, só usa slots livres.
 - **O que você move** vira o plano da semana e não conta como mudança de rota; só gera aviso se quebrar uma regra.
 - **Treino com ✕** fica como está. O motor só o reabre sozinho se o piso de musculação estiver quebrado.

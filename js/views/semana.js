@@ -4,7 +4,7 @@
 import {
   aceitarRota, definirExcecao, desfazerRota, manterComoEsta, recalcular, rotaParaDesfazer, salvarCheckinDeHoje, situacaoSemana,
 } from "../services/semana.js";
-import { slotPassou } from "../services/motor-rotas.js";
+import { slotPassou, slotPodeSerSugerido } from "../services/motor-rotas.js";
 import { alternarCorridaNaoFeita, alternarSessao, ROTULO_TIPO } from "../services/agenda.js";
 import { alternarCombinada } from "../services/merge.js";
 import { corridaFeita } from "../services/dominio.js";
@@ -266,8 +266,7 @@ function celulaVazia(ctx, data, periodo) {
   const bloqueado = excecao && (excecao.bloqueio === "dia" || excecao.bloqueio === periodo);
   if (bloqueado) return el("div", { class: "grade-cel grade-cel--vazio grade-cel--bloqueado", text: "não posso" });
   if (slotPassou(ctx, data, periodo)) return el("div", { class: "grade-cel grade-cel--vazio grade-cel--passou", text: "passou" });
-  const naGrade = !ctx.disponibilidade[deISODate(data).getDay()] || ctx.disponibilidade[deISODate(data).getDay()][periodo] !== false;
-  return el("div", { class: "grade-cel grade-cel--vazio", text: naGrade ? "livre" : "—" });
+  return el("div", { class: "grade-cel grade-cel--vazio", text: slotPodeSerSugerido(ctx, data, periodo) ? "livre" : "—" });
 }
 
 function sheetDia(data, excecao) {

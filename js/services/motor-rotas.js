@@ -15,7 +15,7 @@
 
 import {
   CATALOGO, CHECKIN, CUSTOS, DISPONIBILIDADE_PADRAO, FIM_DO_SLOT, HORA_DE_REFERENCIA,
-  LIMITES, NOITES_DE_KARATE, PARES_PARA_JUNTAR, PENALIDADES,
+  LIMITES, NOITES_DE_KARATE, PARES_PARA_JUNTAR, PENALIDADES, SLOTS_QUE_NUNCA_SUGERE,
 } from "../data/rotas-config.js";
 import { diaDaSemana, diffDias, nomeDiaSemana, paraISODate, somarDias } from "./dates.js";
 import { corridaFeita } from "./dominio.js";
@@ -48,8 +48,11 @@ function slotBloqueado(ctx, data, periodo) {
   return bloqueio === "dia" || bloqueio === periodo;
 }
 
-function slotNaGrade(ctx, data, periodo) {
-  const dia = ctx.disponibilidade[diaDaSemana(data)];
+/** O motor pode sugerir este slot? Depende da grade de Ajustes e dos slots que ele nunca sugere. */
+export function slotPodeSerSugerido(ctx, data, periodo) {
+  const diaDaData = diaDaSemana(data);
+  if (SLOTS_QUE_NUNCA_SUGERE.some((s) => s.dia === diaDaData && s.periodo === periodo)) return false;
+  const dia = ctx.disponibilidade[diaDaData];
   return !dia || dia[periodo] !== false;
 }
 
@@ -59,7 +62,7 @@ function slotsLivres(sessoes, ctx) {
   for (let i = 0; i < 7; i++) {
     const data = somarDias(ctx.inicio, i);
     for (const periodo of PERIODOS) {
-      if (slotPassou(ctx, data, periodo) || slotBloqueado(ctx, data, periodo) || !slotNaGrade(ctx, data, periodo)) continue;
+      if (slotPassou(ctx, data, periodo) || slotBloqueado(ctx, data, periodo) || !slotPodeSerSugerido(ctx, data, periodo)) continue;
       if (!ocupados.has(`${data}|${periodo}`)) livres.push({ data, periodo });
     }
   }
@@ -308,7 +311,7 @@ function gerarOperacoes(sessoes, ctx, reabrir = new Set()) {
     const sa = candidatas.find((s) => s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(a));
     const sb = candidatas.find((s) => s.fonte && s.fonte.tipo === "sessao" && normalizado(s.rotulo) === normalizado(b));
     if (!sa || !sb) continue;
-    const proprios = [sa, sb].filter((s) => !slotPassou(ctx, s.data, s.periodo)).map((s) => ({ data: s.data, periodo: s.periodo }));
+    const proprios = [sa, sb].filter((s) => !slotPassou(ctx, s.data, s.periodo) && slotPodeSerSugerido(ctx, s.data, s.periodo)).map((s) => ({ data: s.data, periodo: s.periodo }));
     for (const destino of [...proprios, ...livres]) {
       const { erros } = validarMerge({
         escolhidas: [{ entrada: sa.fonte, data: sa.data }, { entrada: sb.fonte, data: sb.data }], data: destino.data, inicio: ctx.inicio,

@@ -1,6 +1,7 @@
 // horarios-editor.js — Ajustes → Horários para treinar. A semana-padrão: os slots
 // que o motor de rotas pode sugerir. Exceções da semana ficam na aba Semana.
 
+import { SLOTS_QUE_NUNCA_SUGERE } from "../data/rotas-config.js";
 import { obterDisponibilidade, salvarDisponibilidade } from "../services/semana.js";
 import { voltar } from "./router.js";
 import { el, card, cabecalhoVoltar, toast } from "./components/ui.js";
@@ -20,9 +21,14 @@ export async function renderEditorHorarios(container) {
     try { await salvarDisponibilidade(grade); }
     catch (e) { toast("Não foi possível salvar: " + (e && e.message)); }
   };
-  const chip = (dia, periodo, rotulo) => el("button", {
-    type: "button", class: "chip", text: rotulo, "aria-pressed": grade[dia][periodo] !== false, onClick: alternar(dia, periodo),
-  });
+  const chip = (dia, periodo, rotulo) => {
+    if (SLOTS_QUE_NUNCA_SUGERE.some((s) => s.dia === dia && s.periodo === periodo)) {
+      return el("button", { type: "button", class: "chip", text: rotulo, disabled: true, title: "As rotas não sugerem este horário" });
+    }
+    return el("button", {
+      type: "button", class: "chip", text: rotulo, "aria-pressed": grade[dia][periodo] !== false, onClick: alternar(dia, periodo),
+    });
+  };
 
   container.appendChild(card([
     el("div", { class: "horarios" }, [
@@ -34,5 +40,5 @@ export async function renderEditorHorarios(container) {
       ]),
     ]),
   ]));
-  container.appendChild(el("p", { class: "sub", text: "O karatê continua nas noites de aula: segunda (leve), terça (intenso), quarta (leve) e sexta (leve). Dia útil: manhã até 9h e noite a partir de 19h. Sábado, domingo e feriado: manhã até 13h e tarde a partir de 13h." }));
+  container.appendChild(el("p", { class: "sub", text: "O karatê continua nas noites de aula: segunda (leve), terça (intenso), quarta (leve) e sexta (leve). Dia útil: manhã até 9h e noite a partir de 19h. Sábado, domingo e feriado: manhã até 13h e tarde a partir de 13h. As rotas nunca sugerem domingo à tarde." }));
 }

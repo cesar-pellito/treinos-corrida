@@ -114,15 +114,18 @@ export function rodarTestesMotor(reportar) {
     assert(!r.rotas.some((x) => x.mudancas.join().includes("10")), "sem sugestão de tempo");
   });
 
-  test("cenário 4: domingo cedo sem musculação: junta Upper e Lower nos dois slots de domingo", () => {
-    const e = montar({ agora: quando(DOM, 8) });
+  test("cenário 4: semana quase perdida: junta Upper e Lower se couber; senão, semana comprometida", () => {
+    const domingo = calcularRotas(montar({ agora: quando(DOM, 8) }));
+    eq(domingo.tipo, "comprometida", "domingo cedo só resta a manhã: a tarde de domingo não é sugerida");
+    eq(domingo.rotas.length, 0, "não cabem Upper e Lower");
+
+    const e = montar({ agora: quando(SAB, 8) });
     const r = calcularRotas(e);
     eq(r.tipo, "comprometida", "há mais perdidas do que mudanças");
     eq(r.rotas.length, 1, "a rota do piso existe");
     const rota = r.rotas[0];
     eq(rota.ops.filter((o) => o.tipo === "juntar").length, 2, "dois merges");
-    assert(rota.ops.every((o) => o.data === DOM), "os dois no domingo");
-    eq(new Set(rota.ops.map((o) => o.periodo)).size, 2, "um em cada slot");
+    eq(new Set(rota.ops.map((o) => `${o.data}|${o.periodo}`)).size, 2, "um em cada slot");
     assert(rota.fechar.length > 0, "o resto vira não feito ao aceitar");
     assert(!avaliar({ ctx: e.ctx, sessoes: rota.final }).fora, "depois de aceitar, segue como está");
   });
@@ -190,7 +193,7 @@ export function rodarTestesMotor(reportar) {
     const umLower = montar({ agora: quando(SAB, 7), corridas: [], logs: [log(QUI, "Lower A", "nao_feito"), log(SEG, "Upper A", "feito")] });
     assert(!avaliar(umLower).violacoes.some((v) => v.k.startsWith("piso")), "Lower B garante o piso");
 
-    const doisLower = montar({ agora: quando(DOM, 13, 30), corridas: [], logs: [log(SEG, "Upper A", "feito"), log(SEG, "Leve", "feito"), log(TER, "Intenso", "feito"), log(QUA, "Upper B", "feito"), log(QUA, "Leve", "feito"), log(QUI, "Lower A", "nao_feito"), log(DOM, "Lower B", "nao_feito")] });
+    const doisLower = montar({ agora: quando(SAB, 13, 30), corridas: [], logs: [log(SEG, "Upper A", "feito"), log(SEG, "Leve", "feito"), log(TER, "Intenso", "feito"), log(QUA, "Upper B", "feito"), log(QUA, "Leve", "feito"), log(QUI, "Lower A", "nao_feito"), log(DOM, "Lower B", "nao_feito")] });
     const a = avaliar(doisLower);
     assert(a.violacoes.some((v) => v.k === "piso:lower"), "piso quebrado");
     const r = calcularRotas(doisLower);
@@ -198,7 +201,28 @@ export function rodarTestesMotor(reportar) {
     assert(r.rotas.length >= 2, "mover um Lower ou juntar os dois");
     assert(r.rotas.every((x) => x.ops.every((o) => o.reabrir)), "reabre o ✕");
     resolveASemana(doisLower, r.rotas);
-    assert(r.rotas.every((x) => x.ops.every((o) => o.periodo === "noite" && o.data === DOM)), "só resta a tarde de domingo");
+  });
+
+  test("domingo à tarde nunca é sugerido, mas um treino colocado lá à mão não gera aviso", () => {
+    const logs = [log(SEG, "Upper A", "feito"), log(SEG, "Leve", "feito"), log(TER, "Intenso", "feito"), log(QUA, "Upper B", "feito"), log(QUA, "Leve", "feito")];
+    const naTardeDeDomingo = (o) => o.data === DOM && o.periodo === "noite";
+    const sexta = montar({ agora: quando(SEX, 12, 47), logs });
+    assert(!calcularRotas(sexta).rotas.some((r) => r.ops.some(naTardeDeDomingo)), "nem mover, nem juntar");
+
+    const sabado = montar({ agora: quando(SAB, 8), logs: [...logs, log(QUI, "Lower A", "nao_feito")], corridas: [] });
+    assert(!calcularOfertas(sabado).rotas.some((r) => r.ops.some(naTardeDeDomingo)), "nem nas ofertas de recuperar ✕");
+
+    const tarde = montar({
+      agora: quando(DOM, 8), corridas: [],
+      movimentos: [{ scheduleItemId: itemDe(DOM, "Lower B").id, dataOrigem: DOM, data: DOM, periodo: "noite", ordem: 0 }],
+      logs: [...logs, log(QUI, "Lower A", "feito")],
+    });
+    eq(avaliar(tarde).fora, false, "o treino que você colocou ali continua valendo");
+
+    const domingoTarde = montar({ agora: quando(DOM, 13, 30), corridas: [], logs: [...logs, log(QUI, "Lower A", "nao_feito"), log(DOM, "Lower B", "nao_feito")] });
+    const r = calcularRotas(domingoTarde);
+    eq(r.tipo, "comprometida", "sem nenhum Lower e só a tarde de domingo livre");
+    eq(r.rotas.length, 0);
   });
 
   test("recalcular com ✕ oferece recuperar, com 'manter' como alternativa; decididos não voltam", () => {
