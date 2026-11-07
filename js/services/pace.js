@@ -56,6 +56,20 @@ export function parseTempoParaSegundos(texto) {
   return seg;
 }
 
+/** Teclado só com números: os dois últimos são os segundos ("2730" -> "27:30", "12730" -> "1:27:30"). */
+export function mascararTempo(texto) {
+  const d = String(texto ?? "").replace(/\D/g, "").slice(0, 6);
+  if (d.length <= 2) return d;
+  const hh = d.slice(0, -4);
+  return `${hh ? hh + ":" : ""}${d.slice(-4, -2)}:${d.slice(-2)}`;
+}
+
+/** O valor final do campo Tempo: 1 ou 2 números são minutos ("27" -> "27:00"). */
+export function tempoDoCampo(texto) {
+  const t = mascararTempo(texto);
+  return /^\d{1,2}$/.test(t) ? `${t}:00` : t;
+}
+
 /**
  * Pace em segundos por km, a partir de metros e segundos.
  * Devolve null se distância ou tempo forem nulos/zero (evita divisão por zero).
@@ -86,6 +100,12 @@ export function formatarDuracao(duracaoSeg) {
   const s = duracaoSeg % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Formata minutos acumulados como "6h07m"; abaixo de 1 hora, "45 min". */
+export function formatarTempoTotal(minutos) {
+  if (minutos < 60) return `${minutos} min`;
+  return `${Math.floor(minutos / 60)}h${String(minutos % 60).padStart(2, "0")}m`;
 }
 
 /** Formata metros como "6,84 km" (vírgula decimal, pt-BR). */

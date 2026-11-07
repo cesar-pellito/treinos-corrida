@@ -54,6 +54,7 @@ export async function seriesSemanais(plan, { tipoFacil = null } = {}) {
     linhas.push({
       semana: s,
       minutos,
+      minutosPlanejados: doPlano.reduce((a, w) => a + (w.duracaoMin || 0), 0),
       km,
       aderencia: doPlano.length ? concluidos / doPlano.length : null,
       concluidos,
@@ -64,6 +65,16 @@ export async function seriesSemanais(plan, { tipoFacil = null } = {}) {
     });
   }
   return linhas;
+}
+
+/**
+ * Semanas que os gráficos mostram: sempre `periodo` semanas, terminando na atual
+ * quando já houver semanas suficientes. `periodo` 0 = o plano todo.
+ */
+export function janelaDeSemanas(semanaAtual, periodo, totalSemanas) {
+  if (periodo === 0) return { de: 1, ate: totalSemanas };
+  const ate = Math.min(totalSemanas, Math.max(semanaAtual, periodo));
+  return { de: Math.max(1, ate - periodo + 1), ate };
 }
 
 function media(arr) {

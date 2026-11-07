@@ -259,7 +259,7 @@ Marque cada item ao validar uma nova instalação.
 **Funcionalidade (corrida)**
 - [ ] Pace **calculado ao vivo** no formato `6:48 /km`; avisos (sem bloquear) fora de faixa.
 - [ ] Comparativo **planejado × realizado** com deltas.
-- [ ] Gráficos de Evolução renderizam (volume, consistência, pace/FC fácil, RPE).
+- [ ] Gráficos de Evolução renderizam (volume feito × planejado, aderência por semana, pace/FC fácil, RPE) e tocar numa semana mostra o valor.
 - [ ] Recorrência de desconforto (contagem factual dos últimos treinos).
 - [ ] Exporta **`.ics`** com `UID`/`SEQUENCE`/alarme; reagendar incrementa `SEQUENCE`.
 

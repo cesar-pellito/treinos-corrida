@@ -5,7 +5,7 @@
 import * as repo from "../data/repository.js";
 import { irPara, voltar } from "./router.js";
 import {
-  parseDistanciaParaMetros, parseTempoParaSegundos, calcularPaceSegPorKm,
+  parseDistanciaParaMetros, parseTempoParaSegundos, mascararTempo, tempoDoCampo, calcularPaceSegPorKm,
   formatarPace, validarRegistro,
 } from "../services/pace.js";
 import { hoje as hojeISO } from "../services/dates.js";
@@ -58,7 +58,7 @@ export async function renderFormulario(container, { modo, id, aoSalvarIrPara = n
   // ---- Campos ----
   const inData = el("input", { type: "date", id: "f-data", value: completed?.data || planned?.dataPlanejada || hojeISO() });
   const inDist = el("input", { type: "text", inputmode: "decimal", id: "f-dist", placeholder: "ex.: 5,2", value: metrosParaInput(completed?.distanciaMetros) });
-  const inTempo = el("input", { type: "text", inputmode: "numeric", id: "f-tempo", placeholder: "mm:ss ou h:mm:ss", value: segParaInput(completed?.duracaoSeg) });
+  const inTempo = el("input", { type: "text", inputmode: "numeric", id: "f-tempo", placeholder: "ex.: 27:30", value: segParaInput(completed?.duracaoSeg) });
 
   const paceValor = el("span", { class: "valor", text: "—" });
   const paceBox = el("div", { class: "pace-vivo" }, [paceValor, el("span", { class: "rot", text: "pace" })]);
@@ -67,14 +67,22 @@ export async function renderFormulario(container, { modo, id, aoSalvarIrPara = n
   function recalc() {
     let metros = null, seg = null;
     try { metros = parseDistanciaParaMetros(inDist.value); } catch { metros = null; }
-    try { seg = parseTempoParaSegundos(inTempo.value); } catch { seg = null; }
+    try { seg = parseTempoParaSegundos(tempoDoCampo(inTempo.value)); } catch { seg = null; }
     const pace = calcularPaceSegPorKm(metros, seg);
     paceValor.textContent = formatarPace(pace);
     const avisos = validarRegistro({ distanciaMetros: metros, duracaoSeg: seg, paceSegPorKm: pace, fcMedia: numOuNull(inFcMed.value), fcMaxima: numOuNull(inFcMax.value) });
     avisosBox.replaceChildren(...avisos.map((a) => el("p", { text: a })));
   }
   inDist.addEventListener("input", recalc);
-  inTempo.addEventListener("input", recalc);
+  inTempo.addEventListener("input", () => {
+    // corrigindo no meio do texto, não pula o cursor: o blur arruma
+    if (inTempo.selectionStart === inTempo.value.length) inTempo.value = mascararTempo(inTempo.value);
+    recalc();
+  });
+  inTempo.addEventListener("blur", () => {
+    inTempo.value = tempoDoCampo(inTempo.value);
+    recalc();
+  });
 
   const rpe = seletorBotoes(
     Array.from({ length: 10 }, (_, i) => ({ valor: i + 1, rotulo: String(i + 1) })),
@@ -138,7 +146,7 @@ export async function renderFormulario(container, { modo, id, aoSalvarIrPara = n
       erro.textContent = "";
       let metros, seg;
       try { metros = parseDistanciaParaMetros(inDist.value); } catch (e) { erro.textContent = "Distância inválida."; return; }
-      try { seg = parseTempoParaSegundos(inTempo.value); } catch (e) { erro.textContent = "Tempo inválido (use mm:ss ou h:mm:ss)."; return; }
+      try { seg = parseTempoParaSegundos(tempoDoCampo(inTempo.value)); } catch (e) { erro.textContent = "Tempo inválido (segundos e minutos vão até 59)."; return; }
       if (seg != null && seg <= 0) { erro.textContent = "O tempo precisa ser positivo."; return; }
       const pace = calcularPaceSegPorKm(metros, seg);
       const dados = {
@@ -190,7 +198,7 @@ export async function renderFormulario(container, { modo, id, aoSalvarIrPara = n
       campoEncurtada,
       ehAvulso ? campo("Tipo de treino", tipoAvulso.node) : null,
       campo("Distância (km)", inDist, "Opcional. Aceita vírgula ou ponto."),
-      campo("Tempo", inTempo, "mm:ss ou h:mm:ss."),
+      campo("Tempo", inTempo, "Só os números: 2730 vira 27:30 e 27 vira 27:00."),
       paceBox,
       campo("Esforço percebido (RPE 1–10)", rpe.node),
       el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" } }, [

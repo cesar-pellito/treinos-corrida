@@ -16,13 +16,13 @@ import * as nutri from "../services/nutricao.js";
 import * as merge from "../services/merge.js";
 import {
   calcularPaceSegPorKm, formatarPace, parseDistanciaParaMetros,
-  parseTempoParaSegundos, formatarDuracao, validarRegistro,
+  parseTempoParaSegundos, mascararTempo, tempoDoCampo, formatarDuracao, formatarTempoTotal, validarRegistro,
 } from "../services/pace.js";
 import {
   deISODate, paraISODate, somarDias, diffDias, diaDaSemana,
   inicioDaSemana, ehISODateValida, hoje as hojeDeHoje,
 } from "../services/dates.js";
-import { aderencia, seriesSemanais, comparacaoSemelhante } from "../services/stats.js";
+import { aderencia, seriesSemanais, comparacaoSemelhante, janelaDeSemanas } from "../services/stats.js";
 import { statusEfetivo, remarcarEmpurrando, progressoSemana } from "../services/schedule.js";
 import * as semanaSrv from "../services/semana.js";
 import { recorrencia } from "../services/discomfort.js";
@@ -89,6 +89,23 @@ export async function rodarTestes(seed, reportar) {
     eq(parseDistanciaParaMetros("6.84"), 6840);
     eq(parseDistanciaParaMetros(""), null);
   });
+  await test("pace: campo Tempo põe os dois-pontos ao digitar", () => {
+    eq(mascararTempo("27"), "27");
+    eq(mascararTempo("273"), "2:73", "ainda digitando");
+    eq(mascararTempo("2730"), "27:30");
+    eq(mascararTempo("12730"), "1:27:30");
+    eq(mascararTempo("27:30"), "27:30", "valor já formatado fica igual");
+    eq(mascararTempo("1:00:00"), "1:00:00");
+    eq(mascararTempo("27.30"), "27:30", "outra pontuação do teclado");
+    eq(mascararTempo(""), "");
+    eq(tempoDoCampo("27"), "27:00", "1 ou 2 números são minutos");
+    eq(tempoDoCampo("5"), "5:00");
+    eq(tempoDoCampo("2730"), "27:30");
+    eq(tempoDoCampo(""), "");
+    eq(parseTempoParaSegundos(tempoDoCampo("2730")), 1650);
+    eq(parseTempoParaSegundos(tempoDoCampo("27")), 1620);
+  });
+
   await test("pace: parse de tempo mm:ss e hh:mm:ss", () => {
     eq(parseTempoParaSegundos("5:00"), 300);
     eq(parseTempoParaSegundos("1:00:00"), 3600);
@@ -284,6 +301,28 @@ export async function rodarTestes(seed, reportar) {
     eq(serie.length, 22);
     eq(serie[0].minutos, 48, "2 x 24 min = 48");
     eq(serie[0].concluidos, 2);
+    const planejados = await repo.listarPlanned({ planId: plan.id });
+    const daSemana1 = planejados.filter((w) => w.semana === 1).reduce((a, w) => a + w.duracaoMin, 0);
+    assert(daSemana1 > 0, "a semana 1 tem minutos planejados");
+    eq(serie[0].minutosPlanejados, daSemana1, "minutos planejados somam as sessões da semana");
+  });
+
+  await test("stats: gráficos mostram sempre as semanas do período", () => {
+    const iguais = (a, de, ate) => { eq(a.de, de); eq(a.ate, ate); };
+    iguais(janelaDeSemanas(2, 8, 22), 1, 8);
+    iguais(janelaDeSemanas(2, 4, 22), 1, 4);
+    iguais(janelaDeSemanas(12, 8, 22), 5, 12);
+    iguais(janelaDeSemanas(22, 12, 22), 11, 22);
+    iguais(janelaDeSemanas(5, 0, 22), 1, 22);
+    iguais(janelaDeSemanas(2, 12, 8), 1, 8);
+  });
+
+  await test("pace: tempo total em horas e minutos", () => {
+    eq(formatarTempoTotal(367), "6h07m");
+    eq(formatarTempoTotal(69), "1h09m");
+    eq(formatarTempoTotal(60), "1h00m");
+    eq(formatarTempoTotal(45), "45 min");
+    eq(formatarTempoTotal(0), "0 min");
   });
 
   // -------------------------------------------------------------------------
